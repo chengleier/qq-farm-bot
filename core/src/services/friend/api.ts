@@ -7,6 +7,7 @@ const { sendMsgAsync, getUserState, GatewayError } = require('../../utils/networ
 const { types } = require('../../utils/proto');
 const { toLong, toNum, log, logWarn, sleep, randomDelay } = require('../../utils/utils');
 const { getFarmingSkillGiftCount } = require('../dog-skill-gifts');
+const { recordFriendDogFromEnterReply } = require('./pet-cache');
 const {
     syncKnownFriendGidsFromRecentVisitors,
     fetchQqFriendsByKnownGids,
@@ -120,7 +121,10 @@ export async function enterFriendFarm(friendGid: number, priority: 'low' | 'norm
         reason: 2,  // ENTER_REASON_FRIEND
     })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.visitpb.VisitService', 'Enter', body, { priority });
-    return types.VisitEnterReply.decode(replyBody);
+    const reply: any = types.VisitEnterReply.decode(replyBody);
+    // Enter 回包是护主犬信息的唯一来源；所有进好友农场的调用都在这里顺手写缓存，不额外花 RPC。
+    recordFriendDogFromEnterReply(friendGid, reply);
+    return reply;
 }
 
 export async function leaveFriendFarm(friendGid: number, priority: 'low' | 'normal' = 'normal'): Promise<void> {

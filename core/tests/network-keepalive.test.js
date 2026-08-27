@@ -14,13 +14,18 @@ const {
     shouldTerminateForHeartbeat,
 } = require('../dist/utils/keepalive-policy');
 const {
+    REQUEST_PRESSURE_LOG_INTERVAL_MS,
+    countBlockingQueuedRequests,
+    shouldLogRequestPressure,
+} = require('../dist/utils/request-pressure');
+const {
     compareHandshakeUrls,
     redactHandshakeCode,
 } = require('../../tools/analyze-keepalive-capture');
 
 test('default client version has a release timestamp', () => {
-    assert.equal(DEFAULT_CLIENT_VERSION, '1.13.3.11_20260826');
-    assert.equal(DEFAULT_CLIENT_VERSION_UPDATED_AT, 1787673600000);
+    assert.equal(DEFAULT_CLIENT_VERSION, '1.13.3.14_20260826');
+    assert.equal(DEFAULT_CLIENT_VERSION_UPDATED_AT, 1787760000000);
 });
 
 test('newer timestamp wins when resolving the client version', () => {
@@ -111,4 +116,22 @@ test('handshake comparison removes only Code and compares every other URL byte',
         allCodesPresentAndDistinct: true,
     });
     assert.equal(compareHandshakeUrls([first, changed]).identicalExceptCode, false);
+});
+
+test('a low priority only backlog is not reported as gateway pressure', () => {
+    const lowOnly = [{ priority: 'low' }, { priority: 'low' }, { priority: 'low' }];
+
+    assert.equal(countBlockingQueuedRequests(lowOnly), 0);
+    assert.equal(shouldLogRequestPressure(lowOnly, 60000, 0), false);
+    assert.equal(shouldLogRequestPressure([], 60000, 0), false);
+});
+
+test('undispatchable requests are reported once per throttle window', () => {
+    const queue = [{ priority: 'low' }, { priority: 'normal' }, { priority: 'high' }];
+
+    assert.equal(REQUEST_PRESSURE_LOG_INTERVAL_MS, 5000);
+    assert.equal(countBlockingQueuedRequests(queue), 2);
+    assert.equal(shouldLogRequestPressure(queue, 20000, 0), true);
+    assert.equal(shouldLogRequestPressure(queue, 20000, 20000 - REQUEST_PRESSURE_LOG_INTERVAL_MS), true);
+    assert.equal(shouldLogRequestPressure(queue, 20000, 20001 - REQUEST_PRESSURE_LOG_INTERVAL_MS), false);
 });

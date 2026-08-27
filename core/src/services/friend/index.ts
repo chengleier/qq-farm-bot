@@ -9,8 +9,21 @@ export {
 } from './gid-manager';
 
 export {
+    getFriendDogState,
+    getFriendPetCacheStats,
+} from './pet-cache';
+
+export {
+    isFriendPetSyncRunning,
+    runFriendPetSync,
+    startFriendPetSyncTimer,
+    stopFriendPetSyncTimer,
+} from './pet-sync';
+
+export {
     checkFriends,
     getOperationLimits,
+    isFriendCheckRunning,
     isHelpExpLimitReached,
     onFriendApplicationReceived,
     refreshFriendCheckLoop,

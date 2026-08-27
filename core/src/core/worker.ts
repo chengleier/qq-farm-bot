@@ -921,8 +921,11 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'exchangeWeatherCollectorBottle':
                 result = await require('../services/activity-center').exchangeWeatherCollectorBottle();
                 break;
+            case 'getWeatherFriends':
+                result = await require('../services/activity-center').getWeatherFriends();
+                break;
             case 'scanWeatherFriends':
-                result = await require('../services/activity-center').scanWeatherFriends();
+                result = await require('../services/activity-center').scanWeatherFriends(args[0]);
                 break;
             case 'useWeatherCollectorBottle':
                 result = await require('../services/activity-center').useWeatherCollectorBottle(args[0]);

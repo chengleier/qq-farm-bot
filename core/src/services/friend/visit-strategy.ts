@@ -41,6 +41,8 @@ const {
     postToMaster,
     removeKnownFriendGid,
 } = require('./gid-manager');
+const { PROTECT_DOG_ID, getFriendDogState, getFriendDogId } = require('./pet-cache');
+const { getItemById, getItemImageById } = require('../../config/gameConfig');
 
 // 延迟引用 scheduler 模块，避免循环依赖
 let _scheduler: any = null;
@@ -52,8 +54,6 @@ function schedulerRef(): any {
 // ============ 内部状态 ============
 let friendsListCache: any[] | null = null;
 let friendsListCacheTime: number = 0;
-
-const PROTECT_DOG_ID = 90021;
 
 function isProtectDog(dogInfo: any): boolean {
     return toNum(dogInfo && (dogInfo.dog_id ?? dogInfo.dogId)) === PROTECT_DOG_ID;
@@ -370,6 +370,33 @@ export function analyzeFriendLands(lands: any[], myGid: number, friendName: stri
 
 // ============ 好友列表与土地详情 ============
 
+export type FriendPetState = 'protect' | 'other' | 'none' | 'unknown';
+
+/**
+ * 好友上场宠物的展示信息，数据全部来自按天缓存（进好友农场时顺手写入 + 每日同步补齐），
+ * 为了展示不会额外发任何 RPC；当天还没确认过的好友是 unknown，交由每日同步补齐。
+ */
+export function buildFriendPetView(friendGid: any): { petState: FriendPetState; pet: any } {
+    if (getFriendDogState(friendGid) === 'unknown') return { petState: 'unknown', pet: null };
+    const dogId: number = getFriendDogId(friendGid);
+    // 当天确认过但没有上场狗，同样是有效结论
+    if (dogId <= 0) return { petState: 'none', pet: null };
+    const metadata: any = getItemById(dogId);
+    return {
+        petState: dogId === PROTECT_DOG_ID ? 'protect' : 'other',
+        pet: {
+            id: String(dogId),
+            name: String(metadata?.name || `宠物 ${dogId}`),
+            image: getItemImageById(dogId) || '',
+        },
+    };
+}
+
+// 宠物结论随时会被 Enter 回包刷新，所以不写进好友列表缓存，只在返回前附加
+function withFriendPetView(list: any[]): any[] {
+    return (Array.isArray(list) ? list : []).map((friend: any) => ({ ...friend, ...buildFriendPetView(friend.gid) }));
+}
+
 /**
  * 获取好友列表 (供面板)
  */
@@ -418,7 +445,7 @@ export async function getFriendsList(forceSync: boolean = false, priority: 'low'
         // 检查缓存
         const now: number = Date.now();
         if (!forceSync && friendsListCache && (now - friendsListCacheTime) < getFriendsListCacheTtlMs()) {
-            return friendsListCache.map((friend: any) => ({ ...friend }));
+            return withFriendPetView(friendsListCache);
         }
 
         log('好友', '开始获取好友列表', {
@@ -434,7 +461,7 @@ export async function getFriendsList(forceSync: boolean = false, priority: 'low'
             result: 'ok',
             count: result.length,
         });
-        return result;
+        return withFriendPetView(result);
     } catch (e: any) {
         log('好友', `获取好友列表失败: ${e.message}`, {
             module: 'friend',
@@ -448,7 +475,7 @@ export async function getFriendsList(forceSync: boolean = false, priority: 'low'
 
 export function getFriendsListCacheOnly(): any[] {
     if (!Array.isArray(friendsListCache)) return [];
-    return friendsListCache.map((friend: any) => ({ ...friend }));
+    return withFriendPetView(friendsListCache);
 }
 
 /**
@@ -955,8 +982,13 @@ export async function visitFriendForHelp(friend: any, totalActions: any, myGid: 
     if (!stopWhenExpLimit) schedulerRef().setCanGetHelpExp(true);
     const protectDogBypassEnabled: boolean = !!isAutomationOn('friend_help_protect_dog_ignore_exp_limit');
     const expLimitReachedBeforeVisit: boolean = stopWhenExpLimit && !schedulerRef().getCanGetHelpExp();
-    if (expLimitReachedBeforeVisit && !protectDogBypassEnabled) {
-        return { acted: false, entered: false, status: 'skipped_exp_limit' };
+    if (expLimitReachedBeforeVisit) {
+        // 经验满之后唯一还值得帮忙的对象是挂着护主犬的好友（同气连枝礼包）。
+        // 护主犬只能从 Enter 回包读到，所以这里只查当天缓存，不再逐个进农场试探；
+        // 缓存当天还没确认过的好友交给 pet-sync 的每日同步补齐。
+        if (!protectDogBypassEnabled || getFriendDogState(gid) !== 'protect') {
+            return { acted: false, entered: false, status: 'skipped_exp_limit' };
+        }
     }
 
     let enterReply: any;

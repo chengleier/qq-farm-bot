@@ -7,9 +7,9 @@ const { PlantPhase } = require('../config/config');
 const { getItemById, getItemImageById } = require('../config/gameConfig');
 const { sendMsgAsync, getUserState, networkEvents, GatewayError } = require('../utils/network');
 const { types } = require('../utils/proto');
-const { getServerTimeSec, toNum } = require('../utils/utils');
+const { getServerTimeSec, toNum, sleep } = require('../utils/utils');
 const { enterFriendFarm, leaveFriendFarm } = require('./friend/api');
-const { getFriendsList } = require('./friend');
+const { getFriendsList, getFriendsListCacheOnly, isFriendCheckRunning } = require('./friend');
 const { buildLandMap, getCurrentPhase, getDisplayLandContext } = require('./farm/land-analysis');
 const { getBag, getBagItems } = require('./warehouse');
 
@@ -33,7 +33,19 @@ const THUNDERSTORM_TYPE = 1;
 // EnterReply.field 13.field 9 is scoped to the current thunderstorm instance.
 // It is not a per-friend daily collection record and resets for a later storm.
 const COLLECTED_THIS_CYCLE_MARKER = 4;
-const FRIEND_WEATHER_CACHE_TTL_SEC = 90;
+// A scan never refreshes a friend whose cache is still valid, so reopening the panel
+// within this window costs no Enter/Leave pair at all.
+const FRIEND_WEATHER_CACHE_TTL_SEC = 600;
+// Friend list loading and friend weather scanning are separate endpoints, and the
+// panel scans in batches so a single request never enters more farms than this.
+const FRIEND_WEATHER_SCAN_BATCH_LIMIT = 5;
+// Pause between two farm visits inside one batch. Enter/Leave pairs own a single low
+// priority gateway slot, so pacing them keeps the shared connection responsive.
+const FRIEND_WEATHER_SCAN_GAP_MS = 300;
+// The automated friend routine enters friend farms too, so a scan yields to it and
+// hands the friends it could not reach back to the panel for a later retry.
+const FRIEND_TASK_WAIT_MAX_MS = 10000;
+const FRIEND_TASK_POLL_MS = 250;
 const COLLECT_DAILY_LIMIT = 10;
 const MISCHIEF_DAILY_LIMIT = 100;
 const MAX_SIGNED_INT64 = 9223372036854775807n;
@@ -290,6 +302,7 @@ async function getWeatherStatus(): Promise<any> {
 }
 
 const friendWeatherCache = new Map<string, any>();
+const friendWeatherInspections = new Map<string, Promise<any>>();
 
 function friendGid(friend: any): string {
     return int64String(friend?.gid ?? friend?.basic?.gid);
@@ -322,25 +335,58 @@ function cloudEligibleLandIds(lands: any[]): string[] {
     return result;
 }
 
+async function waitForFriendTaskIdle(maxWaitMs = FRIEND_TASK_WAIT_MAX_MS): Promise<boolean> {
+    if (!isFriendCheckRunning()) return true;
+    const deadline = Date.now() + Math.max(0, maxWaitMs);
+    while (isFriendCheckRunning()) {
+        if (Date.now() >= deadline) return false;
+        await sleep(FRIEND_TASK_POLL_MS);
+    }
+    return true;
+}
+
+// Every friend farm visit decodes the same Enter reply, so one builder keeps the cached
+// shape identical no matter which flow entered the farm.
+function friendInspectionFromEnterReply(gid: string, reply: any): any {
+    return {
+        gid,
+        basic: reply?.basic || null,
+        rawWeather: reply?.weather || null,
+        lands: Array.isArray(reply?.lands) ? reply.lands : [],
+        inspectedAt: getServerTimeSec(),
+        error: '',
+    };
+}
+function freshFriendWeather(gid: string): any | null {
+    const cached = friendWeatherCache.get(gid);
+    return cached && getServerTimeSec() - cached.inspectedAt <= FRIEND_WEATHER_CACHE_TTL_SEC ? cached : null;
+}
+
 async function inspectFriendFarmWeather(friend: any, force = false): Promise<any> {
     const gid = friendGid(friend);
     if (gid === '0') return null;
-    const now = getServerTimeSec();
-    const cached = friendWeatherCache.get(gid);
-    if (!force && cached && now - cached.inspectedAt <= FRIEND_WEATHER_CACHE_TTL_SEC) return cached;
+    if (!force) {
+        const fresh = freshFriendWeather(gid);
+        if (fresh) return fresh;
+        // Collapse concurrent inspections of the same friend into one Enter/Leave pair.
+        const inflight = friendWeatherInspections.get(gid);
+        if (inflight) return inflight;
+    }
+    const request = performFriendFarmWeatherInspection(gid, friendWeatherCache.get(gid) || null);
+    friendWeatherInspections.set(gid, request);
+    try {
+        return await request;
+    } finally {
+        if (friendWeatherInspections.get(gid) === request) friendWeatherInspections.delete(gid);
+    }
+}
 
+async function performFriendFarmWeatherInspection(gid: string, cached: any): Promise<any> {
     let entered = false;
     try {
         const reply = await enterFriendFarm(Number(gid), 'low');
         entered = true;
-        const inspection = {
-            gid,
-            basic: reply?.basic || null,
-            rawWeather: reply?.weather || null,
-            lands: Array.isArray(reply?.lands) ? reply.lands : [],
-            inspectedAt: now,
-            error: '',
-        };
+        const inspection = friendInspectionFromEnterReply(gid, reply);
         friendWeatherCache.set(gid, inspection);
         return inspection;
     } catch (error: any) {
@@ -350,7 +396,7 @@ async function inspectFriendFarmWeather(friend: any, force = false): Promise<any
             basic: null,
             rawWeather: null,
             lands: [],
-            inspectedAt: now,
+            inspectedAt: getServerTimeSec(),
             error: String(error?.message || error || '现场天气检查失败'),
         };
         friendWeatherCache.set(gid, inspection);
@@ -393,37 +439,30 @@ function friendWeatherDto(friend: any, inspection: any): any {
     };
 }
 
-async function weatherFriendDtos(friends: any[], scanFriends: boolean): Promise<any[]> {
-    const result: any[] = [];
-    for (const friend of Array.isArray(friends) ? friends : []) {
+function weatherFriendMetaMap(): Map<string, any> {
+    const map = new Map<string, any>();
+    for (const friend of getFriendsListCacheOnly()) {
         const gid = friendGid(friend);
-        if (gid === '0' || gid === int64String(getUserState()?.gid)) continue;
-        const inspection = scanFriends
-            ? await inspectFriendFarmWeather(friend, true)
-            : friendWeatherCache.get(gid) || null;
-        result.push(friendWeatherDto(friend, inspection));
+        if (gid !== '0') map.set(gid, friend);
     }
-    return result;
+    return map;
 }
 
-async function buildWeatherActivitySnapshot(scanFriends = false): Promise<any> {
+function friendDtoForGid(gid: string, inspection: any): any {
+    return friendWeatherDto(weatherFriendMetaMap().get(gid) || { gid }, inspection);
+}
+
+async function buildWeatherActivitySnapshot(): Promise<any> {
     // QQ 网关对活动读取的并发很敏感，按官方客户端顺序串行请求。
     const groupReply = await queryWeatherGroup();
     const bagReply = await getBag();
     const ownWeatherReply = await getWeatherStatus();
-    const friends = await getFriendsList(false, 'normal');
     const group = groupReply?.group;
     if (!group || int64String(group?.activity?.activity_id) !== WEATHER_GROUP_ID) {
         throw businessError('WEATHER_ACTIVITY_UNAVAILABLE', '服务端未发现雨落成诗活动');
     }
     const balances = bagBalances(bagReply);
     const active = activityIsActive(group.activity);
-    // 新版 GetGameFriends/SyncAll 不再稳定携带天气；只有 EnterReply.field 13
-    // 是现场权威数据。普通活动快照只复用缓存，显式扫描时才按官方顺序逐个进入。
-    const inspectedFriends = await weatherFriendDtos(friends, scanFriends);
-    const weatherFriends = inspectedFriends
-        .filter((friend: any) => ['available', 'collected', 'expired'].includes(friend.availability))
-        .sort((left: any, right: any) => left.weather.endTime - right.weather.endTime);
     const shopChild = findChild(groupReply, WEATHER_SHOP_ACTIVITY_ID);
     const mutationChild = findChild(groupReply, WEATHER_MUTATION_ACTIVITY_ID);
     const bottleChild = findChild(groupReply, WEATHER_BOTTLE_ACTIVITY_ID);
@@ -448,8 +487,6 @@ async function buildWeatherActivitySnapshot(scanFriends = false): Promise<any> {
             excludedCropQualities: [1, 2],
         },
         ownWeather,
-        friends: inspectedFriends,
-        thunderstormFriends: weatherFriends,
         shop,
         collector: collectorConfigDto(bottleChild),
         tasks: tasksDto(taskChild),
@@ -460,29 +497,20 @@ async function buildWeatherActivitySnapshot(scanFriends = false): Promise<any> {
                 enabled: !!shopChild && !!shop?.available,
             },
             collectWeather: {
-                enabled: active
-                    && BigInt(balances.get(String(COLLECTOR_BOTTLE_ID)) || '0') > 0n
-                    && weatherFriends.some((friend: any) => friend.canCollect),
-                friendCount: weatherFriends.filter((friend: any) => friend.canCollect).length,
+                enabled: active && BigInt(balances.get(String(COLLECTOR_BOTTLE_ID)) || '0') > 0n,
                 dailyLimit: COLLECT_DAILY_LIMIT,
             },
             scanFriendWeather: {
-                enabled: active && inspectedFriends.length > 0,
-                friendCount: inspectedFriends.length,
-                reason: inspectedFriends.length > 0 ? '' : '当前没有可检查的好友',
+                enabled: active,
+                batchSize: FRIEND_WEATHER_SCAN_BATCH_LIMIT,
+                reason: active ? '' : '活动尚未开放或已经结束',
             },
             frogMischief: {
-                enabled: active
-                    && BigInt(balances.get(String(FROG_MISCHIEF_BOTTLE_ID)) || '0') > 0n
-                    && inspectedFriends.length > 0,
-                friendCount: inspectedFriends.length,
+                enabled: active && BigInt(balances.get(String(FROG_MISCHIEF_BOTTLE_ID)) || '0') > 0n,
                 dailyLimit: MISCHIEF_DAILY_LIMIT,
             },
             cloudMischief: {
-                enabled: active
-                    && BigInt(balances.get(String(CLOUD_MISCHIEF_BOTTLE_ID)) || '0') > 0n
-                    && inspectedFriends.some((friend: any) => friend.eligibleCloudLandIds.length > 0),
-                friendCount: inspectedFriends.filter((friend: any) => friend.eligibleCloudLandIds.length > 0).length,
+                enabled: active && BigInt(balances.get(String(CLOUD_MISCHIEF_BOTTLE_ID)) || '0') > 0n,
                 dailyLimit: MISCHIEF_DAILY_LIMIT,
             },
             summonThunderstorm: {
@@ -513,7 +541,6 @@ async function buildWeatherActivitySnapshot(scanFriends = false): Promise<any> {
 }
 
 let pendingSnapshot: Promise<any> | null = null;
-let pendingFriendScan: Promise<any> | null = null;
 let mutationTail: Promise<void> = Promise.resolve();
 
 function getCurrentWeatherActivity(): Promise<any> {
@@ -526,17 +553,82 @@ function getCurrentWeatherActivity(): Promise<any> {
     return request;
 }
 
-function scanWeatherFriends(): Promise<any> {
-    if (pendingFriendScan) return pendingFriendScan;
-    const request = serializeMutation(async () => ({
-        outcome: 'scanned',
-        snapshot: await buildWeatherActivitySnapshot(true),
-    }));
-    pendingFriendScan = request;
-    request.finally(() => {
-        if (pendingFriendScan === request) pendingFriendScan = null;
-    }).catch(() => {});
-    return request;
+function friendBasicDto(friend: any): any {
+    return {
+        gid: friendGid(friend),
+        name: String(friend?.remark || friend?.name || ''),
+        avatarUrl: String(friend?.avatarUrl || friend?.avatar_url || ''),
+        level: toNum(friend?.level),
+    };
+}
+
+async function getWeatherFriends(): Promise<any> {
+    // 只返回好友基础信息，不进任何农场：现场天气与可采状态由面板点击好友时按需扫描。
+    const friends = await getFriendsList(false, 'normal');
+    const selfGid = int64String(getUserState()?.gid);
+    const result: any[] = [];
+    for (const friend of Array.isArray(friends) ? friends : []) {
+        const gid = friendGid(friend);
+        if (gid === '0' || gid === selfGid) continue;
+        result.push(friendBasicDto(friend));
+    }
+    return result;
+}
+
+function scanFriendGids(input: unknown): string[] {
+    const list = Array.isArray(input) ? input : (input == null || input === '' ? [] : [input]);
+    const selfGid = int64String(getUserState()?.gid);
+    const gids: string[] = [];
+    for (const entry of list) {
+        const gid = positiveDecimal(entry, 'INVALID_WEATHER_FRIEND_GID', 'friendGid');
+        if (gid === selfGid || gids.includes(gid)) continue;
+        gids.push(gid);
+    }
+    if (gids.length === 0) {
+        throw businessError('INVALID_WEATHER_FRIEND_GID', '请先选择需要检查现场天气的好友');
+    }
+    if (gids.length > FRIEND_WEATHER_SCAN_BATCH_LIMIT) {
+        throw businessError(
+            'WEATHER_SCAN_BATCH_TOO_LARGE',
+            `单次最多检查 ${FRIEND_WEATHER_SCAN_BATCH_LIMIT} 位好友，请分批发起`,
+        );
+    }
+    return gids;
+}
+
+function scanWeatherFriends(friendGidsInput: unknown): Promise<any> {
+    const gids = scanFriendGids(friendGidsInput);
+    return serializeMutation(async () => {
+        const meta = weatherFriendMetaMap();
+        const friends: any[] = [];
+        const deferredGids: string[] = [];
+        let visited = 0;
+        for (let index = 0; index < gids.length; index += 1) {
+            const gid = gids[index]!;
+            const fresh = freshFriendWeather(gid);
+            if (fresh) {
+                friends.push(friendWeatherDto(meta.get(gid) || { gid }, fresh));
+                continue;
+            }
+            // 好友任务同样要进出好友农场，先给它让路；
+            // 等不到空闲就把剩下的好友交回前端稍后重试。
+            if (!await waitForFriendTaskIdle()) {
+                deferredGids.push(...gids.slice(index));
+                break;
+            }
+            // Space out the farm visits instead of bursting the whole batch at once.
+            if (visited > 0) await sleep(FRIEND_WEATHER_SCAN_GAP_MS);
+            visited += 1;
+            const inspection = await inspectFriendFarmWeather({ gid });
+            friends.push(friendWeatherDto(meta.get(gid) || { gid }, inspection));
+        }
+        return {
+            outcome: 'scanned',
+            serverTime: getServerTimeSec(),
+            friends,
+            deferredGids,
+        };
+    });
 }
 
 function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -629,14 +721,7 @@ async function useWeatherCollectorBottle(friendGidInput: unknown): Promise<any> 
         try {
             const enterReply = await enterFriendFarm(Number(friendGid));
             entered = true;
-            friendWeatherCache.set(friendGid, {
-                gid: friendGid,
-                basic: enterReply?.basic || null,
-                rawWeather: enterReply?.weather || null,
-                lands: Array.isArray(enterReply?.lands) ? enterReply.lands : [],
-                inspectedAt: getServerTimeSec(),
-                error: '',
-            });
+            friendWeatherCache.set(friendGid, friendInspectionFromEnterReply(friendGid, enterReply));
             weatherBefore = weatherStatusDto(enterReply?.weather, friendGid);
             if (!weatherBefore.isThunderstorm) {
                 throw businessError('WEATHER_FRIEND_NOT_THUNDERSTORM', '该好友农场当前不是雷雨天气');
@@ -679,6 +764,7 @@ async function useWeatherCollectorBottle(friendGidInput: unknown): Promise<any> 
             rewards: (Array.isArray(reply?.rewards) ? reply.rewards : []).map(itemDto),
             weatherBefore,
             weatherAfter,
+            friend: friendDtoForGid(friendGid, weatherAfterInspection),
             snapshot: await buildWeatherActivitySnapshot(),
         };
     });
@@ -724,14 +810,7 @@ async function useWeatherFrogBottle(friendGidInput: unknown): Promise<any> {
         try {
             const enterReply = await enterFriendFarm(Number(friendGid));
             entered = true;
-            friendWeatherCache.set(friendGid, {
-                gid: friendGid,
-                basic: enterReply?.basic || null,
-                rawWeather: enterReply?.weather || null,
-                lands: Array.isArray(enterReply?.lands) ? enterReply.lands : [],
-                inspectedAt: getServerTimeSec(),
-                error: '',
-            });
+            friendWeatherCache.set(friendGid, friendInspectionFromEnterReply(friendGid, enterReply));
             const reply = await sendBottleUse(FROG_MISCHIEF_BOTTLE_ID, stack, {
                 host_gid: friendGid,
                 use_config_id: 0,
@@ -741,6 +820,7 @@ async function useWeatherFrogBottle(friendGidInput: unknown): Promise<any> {
                 outcome: 'frog-used',
                 friendGid,
                 ...useReplyDto(reply),
+                friend: friendDtoForGid(friendGid, friendWeatherCache.get(friendGid) || null),
             };
         } finally {
             if (entered) await leaveFriendFarm(Number(friendGid));
@@ -771,14 +851,7 @@ async function useWeatherCloudBottle(friendGidInput: unknown, landIdInput: unkno
             if (!landId || !eligibleLandIds.includes(landId)) {
                 throw businessError('WEATHER_CLOUD_TARGET_UNAVAILABLE', '好友当前没有可使用乌云使坏瓶的作物');
             }
-            const inspection: any = {
-                gid: friendGid,
-                basic: enterReply?.basic || null,
-                rawWeather: enterReply?.weather || null,
-                lands: Array.isArray(enterReply?.lands) ? enterReply.lands : [],
-                inspectedAt: getServerTimeSec(),
-                error: '',
-            };
+            const inspection: any = friendInspectionFromEnterReply(friendGid, enterReply);
             friendWeatherCache.set(friendGid, inspection);
             const reply = await sendBottleUse(CLOUD_MISCHIEF_BOTTLE_ID, stack, {
                 host_gid: friendGid,
@@ -797,6 +870,7 @@ async function useWeatherCloudBottle(friendGidInput: unknown, landIdInput: unkno
                 friendGid,
                 landId,
                 ...useReplyDto(reply),
+                friend: friendDtoForGid(friendGid, inspection),
             };
         } finally {
             if (entered) await leaveFriendFarm(Number(friendGid));
@@ -851,7 +925,7 @@ networkEvents.on('activitiesChanged', () => {
 });
 networkEvents.on('disconnected', () => {
     pendingSnapshot = null;
-    pendingFriendScan = null;
+    friendWeatherInspections.clear();
     friendWeatherCache.clear();
 });
 
@@ -860,7 +934,9 @@ module.exports = {
     LIGHTNING_MUTANT_CONFIG_ID,
     getWeatherStatus,
     getCurrentWeatherActivity,
+    getWeatherFriends,
     scanWeatherFriends,
+    FRIEND_WEATHER_SCAN_BATCH_LIMIT,
     exchangeWeatherCollectorBottle,
     useWeatherCollectorBottle,
     useWeatherSummonBottle,

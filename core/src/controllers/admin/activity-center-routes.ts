@@ -37,6 +37,7 @@ const ACTIVITY_ERROR_MESSAGES: Record<string, string> = {
     WEATHER_ACTIVITY_UNAVAILABLE: '雨落成诗活动尚未开放或已经结束',
     WEATHER_SHOP_UNAVAILABLE: '天气采集瓶商店当前不可用',
     WEATHER_SHOP_ALREADY_EXCHANGED: '今日已经兑换过天气采集瓶',
+    WEATHER_SCAN_BATCH_TOO_LARGE: '单次最多检查 5 位好友，请分批发起',
     INVALID_WEATHER_FRIEND_GID: '好友信息无效，请刷新活动后重新选择',
     WEATHER_COLLECTOR_UNAVAILABLE: '背包中没有可用的天气采集瓶',
     WEATHER_FRIEND_NOT_THUNDERSTORM: '该好友农场当前不是雷雨天气',
@@ -144,6 +145,7 @@ function mountActivityCenterRoutes(app: Application, ctx: AdminContext): void {
     mountGet('/api/activity-center/qingmei', 'getCurrentQingMeiActivity');
     mountGet('/api/activity-center/qixi', 'getCurrentQixiActivity');
     mountGet('/api/activity-center/weather', 'getCurrentWeatherActivity');
+    mountGet('/api/activity-center/weather/friends', 'getWeatherFriends');
 
     app.post('/api/activity-center/pass/claim', withAccount((accountId: string) => (
         ctx.provider.claimBattlePassRewards(accountId)
@@ -203,8 +205,8 @@ function mountActivityCenterRoutes(app: Application, ctx: AdminContext): void {
     app.post('/api/activity-center/weather/shop/exchange', withAccount((accountId: string) => (
         ctx.provider.exchangeWeatherCollectorBottle(accountId)
     )));
-    app.post('/api/activity-center/weather/friends/scan', withAccount((accountId: string) => (
-        ctx.provider.scanWeatherFriends(accountId)
+    app.post('/api/activity-center/weather/friends/scan', withAccount((accountId: string, req: Request) => (
+        ctx.provider.scanWeatherFriends(accountId, req.body?.friendGids ?? req.body?.friend_gids ?? req.body?.gids)
     )));
     app.post('/api/activity-center/weather/collect', withAccount((accountId: string, req: Request) => (
         ctx.provider.useWeatherCollectorBottle(accountId, req.body?.friendGid)

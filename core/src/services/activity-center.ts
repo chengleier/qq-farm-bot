@@ -4,16 +4,14 @@ import type Long from 'long';
 import constellationCatalog from '../activity-data/constellation-2026072701.json';
 
 const LongModule = require('long');
-const { sendMsgAsync, GatewayError, getUserState } = require('../utils/network');
+const { sendMsgAsync, GatewayError } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { getItemById, getItemImageById, getEffectiveSellInfo, getMutantEffectsByIds } = require('../config/gameConfig');
 const { getServerTimeSec } = require('../utils/utils');
 const { getBag, getBagItems } = require('./warehouse');
-const { enterFriendFarm, leaveFriendFarm } = require('./friend/api');
 const { getActivityWindows, getSellConditionContext } = require('./activity-windows');
 const { buildActivityGameplayBindings, resolveActivityGameplays } = require('./activity-gameplay-registry');
 const { reportActivityShare } = require('./share');
-const { weatherIdName, isWeatherActive } = require('./weather-status');
 const weatherActivityService = require('./weather-activity');
 const { getSystemDateKey } = require('../utils/utils');
 const {
@@ -53,23 +51,6 @@ const QIXI_SACHET_ITEM_ID = '1025';
 const QIXI_RECEIVED_SACHET_ITEM_ID = '1026';
 const QIXI_DEW_ITEM_ID = '301103';
 const QIXI_DEFAULT_GIFT_MESSAGE_TEXT_ID = 15;
-const WEATHER_GROUP_ID = '2026070300';
-const WEATHER_CATALOG_ACTIVITY_ID = '2026070301';
-const WEATHER_TASK_ACTIVITY_ID = '2026070303';
-const WEATHER_RESEARCH_ACTIVITY_ID = '2026070304';
-const WEATHER_DAILY_TASK_ACTIVITY_ID = '2026070305';
-const WEATHER_BADGE_ITEM_ID = 1027;
-const WEATHER_BOTTLE_ITEM_ID = 5001;
-const WEATHER_RAIN_BOTTLE_ITEM_ID = 5002;
-const WEATHER_LIGHTNING_MUTATION_ITEM_ID = 5003;
-const WEATHER_LIGHTNING_ATTRACT_ITEM_ID = 5004;
-const WEATHER_FROG_ITEM_ID = 5005;
-const WEATHER_DARK_CLOUD_ITEM_ID = 5006;
-const WEATHER_LIGHTNING_SENSE_ITEM_IDS = [4002, 4003];
-const WEATHER_CATALOG_GOODS_ID = '200';
-const WEATHER_CATALOG_OPERATE_TYPE = 1;
-const WEATHER_TASK_OPERATE_TYPE = 9;
-const WEATHER_RESEARCH_OPERATE_TYPE = 40;
 const MAX_SIGNED_INT64 = 9223372036854775807n;
 const SECONDS_PER_DAY = 86400;
 const BEIJING_UTC_OFFSET_SECONDS = 8 * 60 * 60;
@@ -622,307 +603,6 @@ async function queryQixiGroupReply(): Promise<any> {
         body,
     );
     return types.GetGroupReply.decode(replyBody);
-}
-
-async function queryWeatherGroupReply(): Promise<any> {
-    const body = Buffer.from(types.GetGroupRequest.encode(types.GetGroupRequest.create({
-        group_id: WEATHER_GROUP_ID,
-    })).finish());
-    const { body: replyBody } = await sendMsgAsync(
-        'gamepb.activitypb.ActivityService',
-        'GetGroup',
-        body,
-    );
-    return types.GetGroupReply.decode(replyBody);
-}
-
-async function queryWeatherStatus(): Promise<any> {
-    const body = Buffer.from(types.GetWeatherStatusRequest.encode(types.GetWeatherStatusRequest.create({})).finish());
-    const { body: replyBody } = await sendMsgAsync('gamepb.weatherpb.WeatherService', 'GetWeatherStatus', body);
-    return types.GetWeatherStatusReply.decode(replyBody);
-}
-
-function findWeatherChild(groupReply: any, activityId: string): any | null {
-    const children = Array.isArray(groupReply?.group?.children) ? groupReply.group.children : [];
-    return children.find((child: any) => int64String(child?.activity?.activity_id) === activityId) || null;
-}
-
-function weatherDto(groupReply: any, balances: Map<string, string> | null = null, weather: any = null) {
-    const catalogChild = findWeatherChild(groupReply, WEATHER_CATALOG_ACTIVITY_ID);
-    const taskChild = findWeatherChild(groupReply, WEATHER_TASK_ACTIVITY_ID);
-    const researchChild = findWeatherChild(groupReply, WEATHER_RESEARCH_ACTIVITY_ID);
-    const dailyTaskChild = findWeatherChild(groupReply, WEATHER_DAILY_TASK_ACTIVITY_ID);
-    const activity = researchChild?.activity || catalogChild?.activity || null;
-    if (!activity) throw businessError('WEATHER_UNAVAILABLE', '服务端未发现雨落成诗活动');
-    const readBalance = (id: number) => balances?.get(String(id)) || '0';
-    const sumBalance = (ids: number[]) => ids
-        .reduce((sum: bigint, id: number) => sum + BigInt(readBalance(id)), 0n)
-        .toString();
-    const lightningSenseCount = sumBalance(WEATHER_LIGHTNING_SENSE_ITEM_IDS);
-    const researchNodes = Array.isArray(researchChild?.weather_research?.state?.nodes)
-        ? researchChild.weather_research.state.nodes : [];
-    const taskEntries = [
-        ...(Array.isArray(taskChild?.weather_tasks?.tasks) ? taskChild.weather_tasks.tasks : []),
-        ...(Array.isArray(dailyTaskChild?.weather_tasks?.tasks) ? dailyTaskChild.weather_tasks.tasks : []),
-    ];
-    const tasks = [...new Map(taskEntries.map((task: any) => [int64String(task?.task_id), task])).values()]
-    const progress = taskChild?.weather_task_progress || {};
-    const progressTaskId = int64String(progress.reward?.task_id);
-    const progressItemId = int64String(progress.item_id);
-    const isCurrentTask = (task: any) => (
-        (progressTaskId !== '0' && int64String(task?.task_id) === progressTaskId)
-        || (progressTaskId === '0' && progressItemId !== '0' && int64String(task?.item_id) === progressItemId)
-    );
-    const catalogGoods = Array.isArray(catalogChild?.catalog?.goods) ? catalogChild.catalog.goods : [];
-    const rules = textContent(activity?.extra || catalogChild?.activity?.extra);
-    return {
-        groupId: WEATHER_GROUP_ID,
-        activityId: int64String(activity.activity_id),
-        catalogActivityId: WEATHER_CATALOG_ACTIVITY_ID,
-        taskActivityId: WEATHER_TASK_ACTIVITY_ID,
-        researchActivityId: WEATHER_RESEARCH_ACTIVITY_ID,
-        name: bytesToText(activity.name) || '雨落成诗',
-        title: bytesToText(activity.name) || '雨落成诗',
-        startTime: int64String(activity.begin_time),
-        endTime: int64String(activity.end_time),
-        rules,
-        badge: itemDto({ item_id: WEATHER_BADGE_ITEM_ID, count: readBalance(WEATHER_BADGE_ITEM_ID) }),
-        balances: {
-            badge: balances ? readBalance(WEATHER_BADGE_ITEM_ID) : null,
-            collectionBottle: balances ? readBalance(WEATHER_BOTTLE_ITEM_ID) : null,
-            rainBottle: balances ? readBalance(WEATHER_RAIN_BOTTLE_ITEM_ID) : null,
-            known: balances !== null,
-        },
-        inventory: {
-            known: balances !== null,
-            collectionBottle: itemDto({ item_id: WEATHER_BOTTLE_ITEM_ID, count: readBalance(WEATHER_BOTTLE_ITEM_ID) }),
-            rainBottle: itemDto({ item_id: WEATHER_RAIN_BOTTLE_ITEM_ID, count: readBalance(WEATHER_RAIN_BOTTLE_ITEM_ID) }),
-            lightningMutationBottle: itemDto({ item_id: WEATHER_LIGHTNING_MUTATION_ITEM_ID, count: readBalance(WEATHER_LIGHTNING_MUTATION_ITEM_ID) }),
-            lightningAttractBottle: itemDto({ item_id: WEATHER_LIGHTNING_ATTRACT_ITEM_ID, count: readBalance(WEATHER_LIGHTNING_ATTRACT_ITEM_ID) }),
-            frogBottle: itemDto({ item_id: WEATHER_FROG_ITEM_ID, count: readBalance(WEATHER_FROG_ITEM_ID) }),
-            darkCloudBottle: itemDto({ item_id: WEATHER_DARK_CLOUD_ITEM_ID, count: readBalance(WEATHER_DARK_CLOUD_ITEM_ID) }),
-            lightningSense: {
-                ...itemDto({ item_id: WEATHER_LIGHTNING_SENSE_ITEM_IDS[0], count: lightningSenseCount }),
-                effectPerItemPercent: 2,
-                effectPercent: Number(BigInt(lightningSenseCount) * 2n),
-                passive: true,
-                active: BigInt(lightningSenseCount) > 0n,
-            },
-        },
-        weather: weather ? {
-            id: int64String(weather.status?.weather_id),
-            type: int64String(weather.status?.weather_type),
-            typeName: weatherIdName(weather.status?.weather_id),
-            beginTime: int64String(weather.status?.begin_time),
-            endTime: int64String(weather.status?.end_time),
-            active: isWeatherActive(weather.status),
-        } : null,
-        catalog: catalogGoods.map((good: any) => ({
-            id: int64String(good.goods_id),
-            item: itemDto(good.item),
-            cost: itemDto(good.cost),
-            status: int64String(good.status),
-            name: bytesToText(good.name),
-        })),
-        progress: {
-            taskId: progressTaskId,
-            current: int64String(progress.current),
-            target: int64String(progress.target),
-            item: itemDto({ item_id: progress.item_id }),
-            reward: itemDto(progress.reward?.item),
-            rewardStatus: int64String(progress.reward?.status),
-            status: int64String(progress.status),
-            active: !!progress.active,
-        },
-        tasks: tasks.map((task: any) => ({
-            id: int64String(task.task_id),
-            itemId: int64String(task.item_id),
-            name: bytesToText(task.name),
-            target: int64String(task.target),
-            reward: itemDto(task.reward),
-            current: isCurrentTask(task) ? int64String(progress.current) : '0',
-            active: isCurrentTask(task) && !!progress.active,
-        })),
-        research: researchNodes.map((node: any) => ({
-            id: int64String(node.node_id),
-            prerequisites: (node.prerequisite_node_ids || []).map(int64String),
-            status: int64String(node.status),
-            opened: !!node.opened,
-            claimed: !!node.claimed,
-            claimable: int64String(node.status) === '2' && !node.claimed,
-            current: int64String(node.status) === '2',
-            featured: !!node.featured,
-            extra: int64String(node.extra),
-            cost: itemDto(node.cost),
-            reward: itemDto(node.reward),
-        })),
-        actions: {
-            research: {
-                enabled: researchNodes.some((node: any) => int64String(node.status) === '2' && !node.claimed),
-                available: researchNodes.some((node: any) => int64String(node.status) === '2' && !node.claimed),
-                availabilityKnown: true,
-            },
-        },
-    };
-}
-
-async function getCurrentWeatherActivity() {
-    const groupReply = await queryWeatherGroupReply();
-    let balances: Map<string, string> | null = null;
-    try {
-        balances = readBagBalances(await getBag(), [
-            String(WEATHER_BADGE_ITEM_ID),
-            String(WEATHER_BOTTLE_ITEM_ID),
-            String(WEATHER_RAIN_BOTTLE_ITEM_ID),
-            String(WEATHER_LIGHTNING_MUTATION_ITEM_ID),
-            String(WEATHER_LIGHTNING_ATTRACT_ITEM_ID),
-            String(WEATHER_FROG_ITEM_ID),
-            String(WEATHER_DARK_CLOUD_ITEM_ID),
-            ...WEATHER_LIGHTNING_SENSE_ITEM_IDS.map(String),
-        ]);
-    } catch {}
-    let weather: any = null;
-    try { weather = await queryWeatherStatus(); } catch {}
-    return weatherDto(groupReply, balances, weather);
-}
-
-async function lightWeatherResearch(nodeId: unknown) {
-    const id = positiveDecimal(nodeId, 'INVALID_WEATHER_NODE', 'nodeId');
-    return serializeMutation(async () => {
-        try {
-            const groupReply = await queryWeatherGroupReply();
-            const researchChild = findWeatherChild(groupReply, WEATHER_RESEARCH_ACTIVITY_ID);
-            const nodes = Array.isArray(researchChild?.weather_research?.state?.nodes)
-                ? researchChild.weather_research.state.nodes : [];
-            const node = nodes.find((entry: any) => int64String(entry?.node_id) === id);
-            if (!node) throw businessError('INVALID_WEATHER_NODE', '服务端未发现指定天气研究节点');
-            const costItemId = int64String(node?.cost?.item_id ?? node?.cost?.id);
-            const costCount = BigInt(int64String(node?.cost?.count));
-            if (costItemId === String(WEATHER_BADGE_ITEM_ID) && costCount > 0n) {
-                const balances = readBagBalances(await getBag(), [costItemId]);
-                if (BigInt(balances.get(costItemId) || '0') < costCount) {
-                    throw businessError('INSUFFICIENT_WEATHER_BADGE', '雷电徽章不足，无法推进研究');
-                }
-            }
-        } catch (error) {
-            if (error instanceof ActivityBusinessError) throw error;
-        }
-        const body = Buffer.from(types.WeatherResearchOperateRequest.encode(types.WeatherResearchOperateRequest.create({
-            activity_id: WEATHER_RESEARCH_ACTIVITY_ID,
-            operate_type: WEATHER_RESEARCH_OPERATE_TYPE,
-            params: { node_id: id },
-        })).finish());
-        const { body: replyBody } = await sendMsgAsync('gamepb.activitypb.ActivityService', 'Operate', body);
-        const reply = types.ActivityOperateReply.decode(replyBody);
-        const result = reply.weather_research_result;
-        const reward = result?.reward ? itemDto(result.reward) : null;
-        return {
-            activityId: WEATHER_RESEARCH_ACTIVITY_ID,
-            nodeId: int64String(result?.node_id) || id,
-            rewards: reward && reward.id !== '0' && reward.count !== '0' ? [reward] : [],
-            unlockedNodeIds: (result?.unlocked_node_ids || []).map(int64String),
-            data: reply.data,
-            snapshot: await getActivityCenterSnapshot(),
-        };
-    });
-}
-
-async function buyWeatherBottle(countInput: unknown) {
-    const count = positiveDecimal(countInput, 'INVALID_WEATHER_BOTTLE_COUNT', 'count');
-    return serializeMutation(async () => {
-        const request = types.ExchangeShopRequest.create({
-            activity_id: WEATHER_CATALOG_ACTIVITY_ID,
-            operate_type: WEATHER_CATALOG_OPERATE_TYPE,
-            exchange_shop_operate: { goods_id: WEATHER_CATALOG_GOODS_ID, count },
-        });
-        const body = Buffer.from(types.ExchangeShopRequest.encode(request).finish());
-        const { body: replyBody } = await sendMsgAsync('gamepb.activitypb.ActivityService', 'Operate', body);
-        const reply = types.ActivityOperateReply.decode(replyBody);
-        if (int64String(reply.activity_id) !== WEATHER_CATALOG_ACTIVITY_ID || int64String(reply.operate_type) !== String(WEATHER_CATALOG_OPERATE_TYPE)) {
-            throw businessError('WEATHER_RESPONSE_INVALID', '天气采集瓶购买回包无效');
-        }
-        const exchangeResult = reply.weather_exchange_result;
-        const received = exchangeResult?.item
-            ? itemDto(exchangeResult.item)
-            : itemDto({ item_id: WEATHER_BOTTLE_ITEM_ID, count: count });
-        const purchasedCount = exchangeResult?.item ? int64String(exchangeResult.item.count) : count;
-        return {
-            purchaseCount: count,
-            rewards: received.id !== '0' && received.count !== '0' ? [received] : [],
-            cost: exchangeResult?.cost ? itemDto(exchangeResult.cost) : null,
-            receivedCount: purchasedCount,
-            snapshot: await getActivityCenterSnapshot(),
-        };
-    });
-}
-
-async function collectWeatherBottle(targetGidInput: unknown) {
-    const targetGid = positiveDecimal(targetGidInput, 'INVALID_WEATHER_TARGET_GID', 'targetGid');
-    const numericTargetGid = Number(targetGid);
-    if (!Number.isSafeInteger(numericTargetGid) || numericTargetGid <= 0) {
-        throw businessError('INVALID_WEATHER_TARGET_GID', 'targetGid 超出当前客户端可处理范围');
-    }
-    return serializeMutation(async () => {
-        try {
-            const bottle = getBagItems(await getBag()).find((item: any) => (
-                int64Number(item?.id ?? item?.item_id) === WEATHER_BOTTLE_ITEM_ID
-                && int64Number(item?.count) > 0
-                && !item?.locked
-            ));
-            if (!bottle) {
-                throw businessError('WEATHER_COLLECTION_BOTTLE_UNAVAILABLE', '背包中没有可用的天气采集瓶');
-            }
-        } catch (error) {
-            if (error instanceof ActivityBusinessError) throw error;
-        }
-        let entered = false;
-        let result: any;
-        try {
-            await enterFriendFarm(numericTargetGid);
-            entered = true;
-            const body = Buffer.from(types.WeatherTaskOperateRequest.encode(types.WeatherTaskOperateRequest.create({
-                activity_id: WEATHER_TASK_ACTIVITY_ID,
-                operate_type: WEATHER_TASK_OPERATE_TYPE,
-                params: { target_gid: targetGid },
-            })).finish());
-            const { body: replyBody } = await sendMsgAsync('gamepb.activitypb.ActivityService', 'Operate', body);
-            const reply = types.ActivityOperateReply.decode(replyBody);
-            if (int64String(reply.activity_id) !== WEATHER_TASK_ACTIVITY_ID || int64String(reply.operate_type) !== String(WEATHER_TASK_OPERATE_TYPE)) {
-                throw businessError('WEATHER_RESPONSE_INVALID', '天气采集回包无效');
-            }
-            const taskResult = reply.weather_task_result;
-            result = {
-                activityId: WEATHER_TASK_ACTIVITY_ID,
-                targetGid,
-                rewards: taskResult?.gained ? [itemDto(taskResult.gained)] : (Array.isArray(reply.rewards) ? reply.rewards : []).map(itemDto),
-                consumed: taskResult?.consumed ? itemDto(taskResult.consumed) : null,
-                data: reply.data,
-            };
-        } finally {
-            if (entered) await leaveFriendFarm(numericTargetGid);
-        }
-        result.snapshot = await getActivityCenterSnapshot();
-        return result;
-    });
-}
-
-async function summonWeatherRain() {
-    return serializeMutation(async () => {
-        const weather = await queryWeatherStatus();
-        if (isWeatherActive(weather?.status)) {
-            throw businessError('WEATHER_STATE_UNAVAILABLE', '当前已有特殊天气，暂时无法召唤降雨');
-        }
-        const bag = await getBag();
-        const stack = getBagItems(bag).find((item: any) => int64Number(item?.id) === WEATHER_RAIN_BOTTLE_ITEM_ID && int64Number(item?.count) > 0 && !item?.locked);
-        if (!stack) throw businessError('WEATHER_BOTTLE_UNAVAILABLE', '背包中没有可用的雷雨召唤瓶');
-        const body = Buffer.from(types.UseRequest.encode(types.UseRequest.create({
-            item: { id: WEATHER_RAIN_BOTTLE_ITEM_ID, count: 1, uid: stack.uid },
-            target: { host_gid: Number(getUserState()?.gid || 0), use_config_id: 0 },
-        })).finish());
-        const { body: replyBody } = await sendMsgAsync('gamepb.itempb.ItemService', 'Use', body);
-        const reply = types.UseReply.decode(replyBody);
-        return { used: (reply.used_items || []).map(itemDto), snapshot: await getActivityCenterSnapshot() };
-    });
 }
 
 function findQixiChild(groupReply: any, activityId: string): any | null {
@@ -1995,6 +1675,7 @@ module.exports = {
     getCurrentSolarTerms,
     getCurrentQixiActivity,
     getCurrentWeatherActivity: weatherActivityService.getCurrentWeatherActivity,
+    getWeatherFriends: weatherActivityService.getWeatherFriends,
     buyWeatherBottle: weatherActivityService.exchangeWeatherCollectorBottle,
     collectWeatherBottle: weatherActivityService.useWeatherCollectorBottle,
     lightWeatherResearch: weatherActivityService.advanceWeatherResearch,

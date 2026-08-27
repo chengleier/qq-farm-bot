@@ -141,3 +141,18 @@ test('frog bottle reply decodes field 6 experience rewards', async () => {
     assert.equal(Number(decoded.social_reward.items[0].id), 1101);
     assert.equal(Number(decoded.social_reward.items[0].count), 30);
 });
+
+test('friend weather scan keeps the five-friend batch contract', () => {
+    const {
+        FRIEND_WEATHER_SCAN_BATCH_LIMIT,
+        scanWeatherFriends,
+    } = require('../dist/services/weather-activity');
+
+    assert.equal(FRIEND_WEATHER_SCAN_BATCH_LIMIT, 5);
+    assert.throws(() => scanWeatherFriends([]), { code: 'INVALID_WEATHER_FRIEND_GID' });
+    assert.throws(() => scanWeatherFriends(['0']), { code: 'INVALID_WEATHER_FRIEND_GID' });
+    assert.throws(
+        () => scanWeatherFriends(['11', '12', '13', '14', '15', '16']),
+        { code: 'WEATHER_SCAN_BATCH_TOO_LARGE' },
+    );
+});

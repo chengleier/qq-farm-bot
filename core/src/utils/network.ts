@@ -11,6 +11,7 @@ const { toLong, toNum, syncServerTime, log, logWarn } = require('./utils');
 const cryptoWasm = require('./crypto-wasm');
 const { GatewayTokenProvider } = require('./gateway-token');
 const { MAX_HEARTBEAT_MISSES, shouldTerminateForHeartbeat } = require('./keepalive-policy');
+const { shouldLogRequestPressure } = require('./request-pressure');
 const { startAceRuntime, stopAceRuntime } = require('../services/ace');
 
 // ============ 事件发射器 (用于推送通知) ============
@@ -249,8 +250,7 @@ function describeQueuedRequests(): string {
 
 function logRequestPressure(): void {
     const now = Date.now();
-    if (now - lastRequestPressureLogAt < 1000) return;
-    if (pendingCallbacks.size < MAX_IN_FLIGHT_REQUESTS && requestQueue.length === 0) return;
+    if (!shouldLogRequestPressure(requestQueue, now, lastRequestPressureLogAt)) return;
     lastRequestPressureLogAt = now;
     logWarn('系统', `Gateway 请求压力: pending=${pendingCallbacks.size}, queued=${requestQueue.length}, active=${describePendingRequests()}, queuedMethods=${describeQueuedRequests()}`);
 }

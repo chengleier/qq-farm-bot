@@ -8,14 +8,15 @@ const props = defineProps<{
   activity: WeatherActivityDto | null
   pendingResearch: boolean
   pendingBuy: boolean
-  pendingScan: boolean
   pendingCollect: boolean
   pendingSummon: boolean
+  inspectingGid: string
+  loadingFriends: boolean
 }>()
 const emit = defineEmits<{
   light: [nodeId: string]
   buy: []
-  scanFriends: []
+  inspect: [friendGid: string]
   collect: [targetGid: string]
   summon: []
 }>()
@@ -25,60 +26,39 @@ const router = useRouter()
 const friendSearch = ref('')
 const selectedFriendGid = ref('')
 const failedAvatars = ref(new Set<string>())
-const friendAvailabilityRank: Record<WeatherFriendDto['availability'], number> = {
-  available: 0,
-  collected: 1,
-  expired: 2,
-  unavailable: 3,
-  unknown: 5,
-}
+const friendList = computed(() => (props.activity?.friends || []).filter(friend => Number(friend.gid) > 0))
+
+// 好友列表只有基础信息，顺序沿用后端返回的姓名排序，点击后才读取这位好友的现场天气。
+const orderedFriends = computed(() => friendList.value)
 
 const filteredFriends = computed(() => {
   const keyword = friendSearch.value.trim().toLowerCase()
-  const source = [...(props.activity?.friends || [])]
-    .filter(friend => Number(friend.gid) > 0)
-    .sort((left, right) => {
-      const leftRank = left.scanError ? 4 : friendAvailabilityRank[left.availability]
-      const rightRank = right.scanError ? 4 : friendAvailabilityRank[right.availability]
-      return leftRank - rightRank
-    })
   if (!keyword)
-    return source.slice(0, 60)
-  return source.filter((friend) => {
+    return orderedFriends.value.slice(0, 60)
+  return orderedFriends.value.filter((friend) => {
     const name = friend.name.toLowerCase()
     return name.includes(keyword) || String(friend.gid || '').includes(keyword)
   }).slice(0, 60)
 })
 
-const selectedFriend = computed(() => props.activity?.friends.find(friend => friend.gid === selectedFriendGid.value) || null)
+const selectedFriend = computed(() => friendList.value.find(friend => friend.gid === selectedFriendGid.value) || null)
 const catalogGoods = computed(() => props.activity?.catalog?.[0] || null)
 const collectionBottleUnavailable = computed(() => !!props.activity?.inventory.known && Number(props.activity.inventory.collectionBottle.count || 0) <= 0)
 const rainBottleUnavailable = computed(() => !!props.activity?.inventory.known && Number(props.activity.inventory.rainBottle.count || 0) <= 0)
-const collectDisabled = computed(() => !selectedFriend.value?.canCollect || props.pendingCollect || collectionBottleUnavailable.value)
+const inspectingSelected = computed(() => !!selectedFriend.value && props.inspectingGid === selectedFriend.value.gid)
+const collectDisabled = computed(() => !selectedFriend.value?.canCollect || props.pendingCollect || collectionBottleUnavailable.value || inspectingSelected.value)
 const currentWeather = computed(() => props.activity?.weather || null)
 const weatherActive = computed(() => !!currentWeather.value?.active)
 const currentWeatherTypeLabel = computed(() => currentWeather.value?.typeName || (currentWeather.value?.id === '1' ? '雷雨' : `未知天气（类型 ${currentWeather.value?.id || '--'}）`))
 const currentWeatherStatusLabel = computed(() => currentWeather.value?.statusName || (currentWeather.value?.type === '2' ? '生效中' : `未知状态（${currentWeather.value?.type || '--'}）`))
 const summonDisabled = computed(() => props.pendingSummon || weatherActive.value || rainBottleUnavailable.value)
-const inspectedCount = computed(() => props.activity?.friends.filter(friend => friend.inspected).length || 0)
-const friendStats = computed(() => {
-  const stats = { available: 0, collected: 0, unavailable: 0, expired: 0, unknown: 0, error: 0 }
-  for (const friend of props.activity?.friends || []) {
-    if (friend.scanError)
-      stats.error += 1
-    else
-      stats[friend.availability] += 1
-  }
-  return stats
+const selectedFriendState = computed(() => {
+  if (!selectedFriend.value)
+    return null
+  if (inspectingSelected.value)
+    return { label: '读取中…', className: 'unknown', detail: '正在进入好友农场读取现场天气' }
+  return friendState(selectedFriend.value)
 })
-const scanAction = computed(() => props.activity?.actions.scanFriendWeather || null)
-const scanDisabled = computed(() => props.pendingScan || !scanAction.value?.enabled)
-const scanButtonLabel = computed(() => {
-  if (props.pendingScan)
-    return `正在检查 ${props.activity?.friends.length || 0} 位好友`
-  return inspectedCount.value > 0 ? '重新扫描现场天气' : '扫描现场天气'
-})
-const selectedFriendState = computed(() => selectedFriend.value ? friendState(selectedFriend.value) : null)
 const collectButtonLabel = computed(() => {
   if (props.pendingCollect)
     return '采集中…'
@@ -86,10 +66,17 @@ const collectButtonLabel = computed(() => {
     return '天气采集瓶不足'
   if (!selectedFriend.value)
     return '请选择好友'
+  if (inspectingSelected.value)
+    return '正在读取现场天气…'
+  if (selectedFriend.value.scanError)
+    return '现场天气读取失败'
+  if (!selectedFriend.value.inspected)
+    return '点击好友读取现场天气'
   if (!selectedFriend.value.canCollect)
     return '当前好友不可采雨'
   return '采集这场雷雨'
 })
+
 const weatherTaskNames: Record<string, string> = {
   5001: '使用天气采集瓶',
   5002: '使用雷雨召唤瓶',
@@ -173,7 +160,7 @@ function friendState(friend: WeatherFriendDto) {
     return { label: '已失效', className: 'expired', detail: '这场雷雨已经结束' }
   if (friend.availability === 'unavailable')
     return { label: '晴天', className: 'clear', detail: '当前不是雷雨天气' }
-  return { label: '待检查', className: 'unknown', detail: '扫描后确认现场天气' }
+  return { label: '待读取', className: 'unknown', detail: '点击好友读取现场天气' }
 }
 
 function friendName(friend: WeatherFriendDto) {
@@ -184,8 +171,11 @@ function friendAvatar(friend: WeatherFriendDto) {
   return friend.avatarUrl
 }
 
+// 点击好友就读取这位好友的现场天气；后端命中 10 分钟缓存时不会真的进农场。
 function chooseFriend(friend: WeatherFriendDto) {
   selectedFriendGid.value = friend.gid
+  if (!props.inspectingGid)
+    emit('inspect', friend.gid)
 }
 
 function markAvatarFailed(friend: WeatherFriendDto) {
@@ -201,16 +191,13 @@ function openInteractionItem(path: string, itemId: string) {
   void router.push({ path, query: { interactionItem: itemId } })
 }
 
-watch(() => props.activity?.friends, (friends = []) => {
-  const current = friends.find(friend => friend.gid === selectedFriendGid.value)
-  if (current?.canCollect)
+// 好友列表重载后，选中的好友已经不在列表里就清空选择。
+watch(friendList, (friends) => {
+  if (!selectedFriendGid.value)
     return
-  const available = friends.find(friend => friend.canCollect)
-  if (available)
-    selectedFriendGid.value = available.gid
-  else if (!current)
+  if (!friends.some(friend => friend.gid === selectedFriendGid.value))
     selectedFriendGid.value = ''
-}, { immediate: true })
+})
 </script>
 
 <template>
@@ -245,28 +232,9 @@ watch(() => props.activity?.friends, (friends = []) => {
               <span class="i-carbon-search" />
               <input v-model="friendSearch" type="search" placeholder="搜索好友名称或 GID">
             </label>
-            <button
-              type="button"
-              class="scan-button"
-              :disabled="scanDisabled"
-              :title="scanAction?.reason || '逐个进入好友农场读取现场天气'"
-              @click="emit('scanFriends')"
-            >
-              <span v-if="pendingScan" class="i-carbon-circle-dash animate-spin" />
-              <span v-else class="i-carbon-radar" />
-              {{ scanButtonLabel }}
-            </button>
-          </div>
-          <div class="friend-summary" role="status">
-            <span class="available"><i />可采雨 {{ friendStats.available }}</span>
-            <span class="collected"><i />本轮已采 {{ friendStats.collected }}</span>
-            <span class="clear"><i />晴天 {{ friendStats.unavailable }}</span>
-            <span class="expired"><i />已失效 {{ friendStats.expired }}</span>
-            <span class="unknown"><i />待检查 {{ friendStats.unknown }}</span>
-            <span class="error"><i />检查失败 {{ friendStats.error }}</span>
           </div>
           <div v-if="filteredFriends.length === 0" class="operation-empty">
-            {{ friendSearch ? '没有匹配的好友' : (pendingScan ? '正在读取好友现场天气…' : '暂无好友天气数据') }}
+            {{ friendSearch ? '没有匹配的好友' : (loadingFriends ? '正在加载好友列表…' : '暂无好友，稍后再试') }}
           </div>
           <div v-else class="friend-list">
             <button
@@ -274,7 +242,7 @@ watch(() => props.activity?.friends, (friends = []) => {
               :key="String(friend.gid)"
               type="button"
               class="friend-option"
-              :class="[{ selected: selectedFriendGid === friend.gid }, `friend-option--${friendState(friend).className}`]"
+              :class="{ selected: selectedFriendGid === friend.gid }"
               :aria-pressed="selectedFriendGid === friend.gid"
               @click="chooseFriend(friend)"
             >
@@ -284,7 +252,7 @@ watch(() => props.activity?.friends, (friends = []) => {
                 <strong>{{ friendName(friend) }}</strong>
                 <small>Lv.{{ friend.level || '--' }} · GID {{ friend.gid }}</small>
               </span>
-              <span class="friend-option__state" :class="friendState(friend).className"><i />{{ friendState(friend).label }}</span>
+              <span v-if="inspectingGid === friend.gid" class="friend-option__loading i-carbon-circle-dash animate-spin" />
             </button>
           </div>
         </div>
@@ -299,14 +267,26 @@ watch(() => props.activity?.friends, (friends = []) => {
               <span>采集对象</span>
               <em :class="selectedFriendState.className"><i />{{ selectedFriendState.label }}</em>
             </div>
-            <strong>{{ friendName(selectedFriend) }}</strong>
+            <div class="selected-friend__identity">
+              <img
+                v-if="friendAvatar(selectedFriend) && !failedAvatars.has(selectedFriend.gid)"
+                :src="friendAvatar(selectedFriend)"
+                alt=""
+                @error="markAvatarFailed(selectedFriend)"
+              >
+              <span v-else class="friend-avatar-fallback i-carbon-user-avatar" />
+              <span class="selected-friend__name">
+                <strong :title="friendName(selectedFriend)">{{ friendName(selectedFriend) }}</strong>
+                <small>Lv.{{ selectedFriend.level || '--' }} · GID {{ selectedFriend.gid }}</small>
+              </span>
+            </div>
             <small>{{ selectedFriendState.detail }}</small>
           </div>
           <div v-else class="selected-friend selected-friend--empty">
             <span class="i-carbon-user-follow" /><strong>选择一位好友</strong>
           </div>
           <button type="button" class="operation-button" :disabled="collectDisabled" @click="submitCollect">
-            <span v-if="pendingCollect" class="i-carbon-circle-dash animate-spin" />
+            <span v-if="pendingCollect || inspectingSelected" class="i-carbon-circle-dash animate-spin" />
             <span v-else class="i-carbon-rain-drop" />
             {{ collectButtonLabel }}
           </button>
@@ -809,7 +789,6 @@ watch(() => props.activity?.friends, (friends = []) => {
   cursor: pointer;
 }
 .operation-button:disabled,
-.scan-button:disabled,
 .research-node button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -821,7 +800,7 @@ watch(() => props.activity?.friends, (friends = []) => {
 }
 .friend-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 .search-field {
@@ -841,43 +820,11 @@ watch(() => props.activity?.friends, (friends = []) => {
   color: inherit;
   background: transparent;
 }
-.scan-button {
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid rgba(46, 138, 102, 0.24);
-  border-radius: 7px;
-  color: #276e54;
-  background: rgba(238, 248, 243, 0.92);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.friend-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 10px;
-  padding: 9px 11px;
-  border: 1px solid rgba(49, 82, 70, 0.1);
-  border-radius: 7px;
-  color: #667a71;
-  background: rgba(245, 250, 247, 0.76);
-  font-size: 11px;
-}
-.friend-summary span,
-.friend-option__state,
 .selected-friend__heading em {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
-.friend-summary i,
-.friend-option__state i,
 .selected-friend__heading em i {
   width: 7px;
   height: 7px;
@@ -885,28 +832,18 @@ watch(() => props.activity?.friends, (friends = []) => {
   border-radius: 50%;
   background: #9aa7a2;
 }
-.friend-summary .available i,
-.friend-option__state.available i,
 .selected-friend__heading em.available i {
   background: #2e8a66;
 }
-.friend-summary .collected i,
-.friend-option__state.collected i,
 .selected-friend__heading em.collected i {
   background: #c08a2f;
 }
-.friend-summary .clear i,
-.friend-option__state.clear i,
 .selected-friend__heading em.clear i {
   background: #7d9aab;
 }
-.friend-summary .expired i,
-.friend-option__state.expired i,
 .selected-friend__heading em.expired i {
   background: #8b9691;
 }
-.friend-summary .error i,
-.friend-option__state.error i,
 .selected-friend__heading em.error i {
   background: #bd6268;
 }
@@ -936,13 +873,6 @@ watch(() => props.activity?.friends, (friends = []) => {
   border-color: rgba(38, 124, 91, 0.28);
   background: rgba(226, 244, 237, 0.86);
 }
-.friend-option--available {
-  border-color: rgba(46, 138, 102, 0.24);
-  box-shadow: inset 3px 0 #2e8a66;
-}
-.friend-option--error {
-  border-color: rgba(189, 98, 104, 0.22);
-}
 .friend-option img,
 .friend-avatar-fallback {
   width: 36px;
@@ -971,26 +901,9 @@ watch(() => props.activity?.friends, (friends = []) => {
   color: #71817a;
   font-size: 11px;
 }
-.friend-option__state {
-  padding: 4px 6px;
-  border-radius: 5px;
-  color: #64766e;
-  background: rgba(237, 241, 239, 0.92);
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.friend-option__state.available {
-  color: #256348;
-  background: rgba(222, 241, 231, 0.94);
-}
-.friend-option__state.collected {
-  color: #805b1d;
-  background: rgba(248, 235, 210, 0.94);
-}
-.friend-option__state.error {
-  color: #9f484f;
-  background: rgba(250, 231, 233, 0.94);
+.friend-option__loading {
+  color: #4b8b72;
+  font-size: 14px;
 }
 .collect-composer {
   display: flex;
@@ -1025,6 +938,31 @@ watch(() => props.activity?.friends, (friends = []) => {
 .selected-friend > small {
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.selected-friend__identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.selected-friend__identity img,
+.selected-friend__identity .friend-avatar-fallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.selected-friend__name {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.selected-friend__name strong,
+.selected-friend__name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .selected-friend--empty {
   align-items: center;

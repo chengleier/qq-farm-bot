@@ -237,6 +237,39 @@ const paginatedFriends = computed(() => {
   return filteredFriends.value.slice(start, end)
 })
 
+// 好友上场宠物徽标：后端按天缓存，进好友农场时顺手更新，另有每日同步补齐，展示不触发任何请求
+const PET_BADGE_CLASSES: Record<string, string> = {
+  protect: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+  other: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+  none: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300',
+  unknown: 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-400',
+}
+
+function buildFriendPetBadge(friend: any) {
+  const state = String(friend?.petState || 'unknown')
+  const name = String(friend?.pet?.name || '').trim()
+  const image = String(friend?.pet?.image || '')
+  const badgeClass = PET_BADGE_CLASSES[state] || PET_BADGE_CLASSES.unknown
+  if (state === 'protect')
+    return { state, text: name || '护主犬', title: '看家宠物：护主犬（经验满仍会帮忙）', image, class: badgeClass }
+  if (state === 'other')
+    return { state, text: name || '未知宠物', title: `看家宠物：${name || '未知'}`, image, class: badgeClass }
+  if (state === 'none')
+    return { state, text: '无宠物', title: '今天已确认：好友没有上场看家宠物', image: '', class: badgeClass }
+  return { state, text: '宠物待确认', title: '今天还没进过这位好友的农场，宠物信息由每日同步补齐', image: '', class: badgeClass }
+}
+
+const friendPetBadges = computed(() => {
+  const map: Record<string, ReturnType<typeof buildFriendPetBadge>> = {}
+  for (const friend of friends.value)
+    map[String(friend?.gid ?? '')] = buildFriendPetBadge(friend)
+  return map
+})
+
+function friendPetBadge(friend: any) {
+  return friendPetBadges.value[String(friend?.gid ?? '')] || buildFriendPetBadge(friend)
+}
+
 watch(searchKeyword, () => {
   currentPage.value = 1
 })
@@ -1024,6 +1057,21 @@ async function handleBatchAddKnownFriendGids() {
                     >
                       金币 {{ formatFriendGold(friend.gold) }}
                     </span>
+
+                    <span
+                      class="inline-flex items-center gap-1 rounded px-1.5 py-0.5"
+                      :class="friendPetBadge(friend).class"
+                      :title="friendPetBadge(friend).title"
+                    >
+                      <img
+                        v-if="friendPetBadge(friend).image"
+                        :src="friendPetBadge(friend).image"
+                        class="h-3.5 w-3.5 object-contain"
+                        alt=""
+                        loading="lazy"
+                      >
+                      {{ friendPetBadge(friend).text }}
+                    </span>
                   </div>
                   <div class="text-sm" :class="getFriendStatusText(friend) !== '无操作' ? 'text-green-500 font-medium' : 'text-gray-400'">
                     <span v-if="getFriendStatusText(friend) !== '无操作'" class="farm-badge inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-600 dark:bg-green-900/20 dark:text-green-400">
@@ -1188,7 +1236,7 @@ async function handleBatchAddKnownFriendGids() {
                         </div>
                       </div>
                       <div class="flex shrink-0 flex-wrap gap-2 xl:max-w-72 xl:justify-end">
-                          <NButton v-if="selectedInteractionItem?.targetKind !== 'farm'" size="small" secondary :disabled="!selectedInteractionItem || interactionUsePending" @click="selectAllInteractionLands(friend.gid)">
+                        <NButton v-if="selectedInteractionItem?.targetKind !== 'farm'" size="small" secondary :disabled="!selectedInteractionItem || interactionUsePending" @click="selectAllInteractionLands(friend.gid)">
                           全选可用
                         </NButton>
                         <NButton v-if="selectedInteractionItem?.targetKind !== 'farm'" size="small" secondary :disabled="selectedInteractionIds(friend.gid).length === 0 || interactionUsePending" @click="setSelectedInteractionIds(friend.gid, [])">
