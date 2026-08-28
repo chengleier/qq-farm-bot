@@ -1,22 +1,23 @@
 export {};
 
 /**
- * Gateway request pressure reporting policy.
- * Low priority requests own a dedicated slot and are meant to wait for an idle gateway,
- * so a queue that only holds low priority work (panel friend scans, background syncs) is
- * normal operation. Only requests that could not be dispatched at all mean congestion.
+ * Gateway 请求压力上报策略。
+ *
+ * background 班次（面板好友扫描、宠物同步等补数据任务）本来就设计成「等网关空闲」，
+ * 队列里只剩这类请求属于正常运行，不该刷压力告警。只有真正等不到连接的班次
+ * （critical / foreground / farm / friend）才代表拥塞。
  */
 
 const REQUEST_PRESSURE_LOG_INTERVAL_MS = 5000;
 
 interface QueuedPriorityLike {
-    priority?: string;
+    requestClass?: string;
 }
 
 function countBlockingQueuedRequests(queue: readonly QueuedPriorityLike[]): number {
     let count = 0;
     for (const request of queue || []) {
-        if (request && request.priority === 'low') continue;
+        if (request && request.requestClass === 'background') continue;
         count += 1;
     }
     return count;
