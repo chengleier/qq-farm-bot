@@ -1061,6 +1061,7 @@ const channelOptions = [
   { label: '企业微信群机器人', value: 'wecombot' },
   { label: 'Discord', value: 'discord' },
   { label: 'WxPusher', value: 'wxpusher' },
+  { label: 'MeoW', value: 'meow' },
 ]
 
 const CHANNEL_DOCS: Record<string, string> = {
@@ -1083,15 +1084,21 @@ const CHANNEL_DOCS: Record<string, string> = {
   ifttt: 'https://ifttt.com/maker_webhooks',
   discord: 'https://discord.com/developers/docs/resources/webhook#execute-webhook',
   wxpusher: 'https://wxpusher.zjiecode.com/docs/#/',
+  meow: 'https://www.chuckfang.com/MeoW/api_doc.html',
 }
 
 const offlineChannel = computed(() => String(localOffline.value.channel || '').trim().toLowerCase())
 const isDingTalkChannel = computed(() => offlineChannel.value === 'dingtalk')
+const isMeowChannel = computed(() => offlineChannel.value === 'meow')
 const offlineChannelUsesEndpoint = computed(() => offlineChannel.value === 'webhook' || isDingTalkChannel.value)
 const offlineEndpointLabel = computed(() => isDingTalkChannel.value ? 'Webhook 地址' : '接口地址')
 const offlineEndpointPlaceholder = computed(() => isDingTalkChannel.value
   ? '从钉钉群机器人设置页复制完整 Webhook'
   : '接收消息的接口地址')
+const offlineTokenLabel = computed(() => isMeowChannel.value ? '昵称' : 'Token')
+const offlineTokenPlaceholder = computed(() => isMeowChannel.value
+  ? 'MeoW 注册昵称'
+  : '接收端 token')
 const currentChannelDocUrl = computed(() => CHANNEL_DOCS[offlineChannel.value] || '')
 
 function openChannelDocs() {
@@ -2066,9 +2073,9 @@ async function handleResetSystemConfig() {
                 <BaseInput
                   v-if="!isDingTalkChannel"
                   v-model="localOffline.token"
-                  label="Token"
+                  :label="offlineTokenLabel"
                   type="text"
-                  placeholder="接收端 token"
+                  :placeholder="offlineTokenPlaceholder"
                 />
 
                 <template v-else>

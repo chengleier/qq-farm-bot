@@ -979,7 +979,7 @@ async function fertilizeOwnLand(landIdInput: unknown, fertilizerTypeInput: unkno
     const updatedLand = updatedRaw
         ? buildLandDetail(updatedRaw, { friendMode: false, landsMap, nowSec })
         : null;
-    const fertilizerRemainingSec = toNum(reply && reply.fertilizer);
+    const fertilizerRemainingSec = toNum(reply?.fertilizer?.count);
 
     recordOperation('fertilize', 1);
     log('施肥', `手动施肥：第 ${landId} 块地已施${typeName}`, {
