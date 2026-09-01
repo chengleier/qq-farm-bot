@@ -9,6 +9,7 @@ import ActivityHeader from '@/components/activity/ActivityHeader.vue'
 import ActivityShell from '@/components/activity/ActivityShell.vue'
 import BottomNav from '@/components/activity/BottomNav.vue'
 import { activityHasGameplay, resolveActivityGameplay } from '@/components/activity/gameplays'
+import { CharityRedFlowerView } from '@/components/activity/gameplays/charity'
 import { QingMeiBrewTab } from '@/components/activity/gameplays/qingmei'
 import QixiActivityView from '@/components/activity/gameplays/qixi/QixiActivityView.vue'
 import { ConstellationTab, SolarTermsTab, StarSandExchangeDialog, StarSandShopTab, TravelPassTab } from '@/components/activity/gameplays/stellar'
@@ -23,7 +24,7 @@ const accountStore = useAccountStore()
 const activityStore = useActivityCenterStore()
 const friendStore = useFriendStore()
 const { currentAccountId } = storeToRefs(accountStore)
-const { activities, season, shop, solarTerms, constellation, qixi, qingMei, weather, actions, tabBadges, loading, error, actionError, notice, loadedAccountId, serverClockOffset, pendingActions, weatherFriendsLoading, weatherFriendInspectingGid } = storeToRefs(activityStore)
+const { activities, season, shop, solarTerms, constellation, qixi, qingMei, charity, weather, actions, tabBadges, loading, error, actionError, notice, loadedAccountId, serverClockOffset, pendingActions, weatherFriendsLoading, weatherFriendInspectingGid } = storeToRefs(activityStore)
 const { friends, loading: friendsLoading } = storeToRefs(friendStore)
 const activeTab = ref<ActivityTab>('travel')
 const selectedActivity = ref<ActivityGameplayKey | null>(null)
@@ -87,6 +88,18 @@ const displayActivities = computed<ActivityDirectoryItemDto[]>(() => {
       detailTarget: 'qingmei',
     })
   }
+  if (charity.value) {
+    appendDetailEntry({
+      id: charity.value.groupId || charity.value.activityId,
+      activityIds: [charity.value.groupId, charity.value.activityId].filter(Boolean),
+      name: charity.value.title,
+      startTime: charity.value.startTime,
+      endTime: charity.value.endTime,
+      gameplayKey: 'charity',
+      gameplayTargets: ['charity'],
+      detailTarget: 'charity',
+    })
+  }
   if (weather.value) {
     appendDetailEntry({
       id: weather.value.groupId || weather.value.activityId,
@@ -121,6 +134,8 @@ const endTime = computed(() => {
     return qixi.value?.endTime
   if (selectedActivity.value === 'qingmei')
     return qingMei.value?.endTime
+  if (selectedActivity.value === 'charity')
+    return charity.value?.endTime
   if (selectedActivity.value === 'weather')
     return weather.value?.endTime
   if (activeTab.value === 'constellation')
@@ -232,6 +247,15 @@ function continueQingMeiBrew() {
 }
 function settleQingMeiBrew() {
   activityStore.settleQingMeiBrew(accountId())
+}
+function claimCharitySeeds() {
+  activityStore.claimCharityRedFlowerSeeds(accountId())
+}
+function donateCharityLove() {
+  activityStore.donateCharityRedFlowerLove(accountId())
+}
+function claimCharityDailyGift() {
+  activityStore.claimCharityRedFlowerDailyGift(accountId())
 }
 function lightWeatherResearch(nodeId: string) {
   activityStore.lightWeatherResearch(accountId(), nodeId)
@@ -496,6 +520,46 @@ onUnmounted(() => {
             @start="startQingMeiBrew"
             @continue="continueQingMeiBrew"
             @settle="settleQingMeiBrew"
+          />
+        </main>
+      </template>
+    </div>
+  </ActivityShell>
+
+  <ActivityShell v-else-if="selectedActivity === 'charity'" theme="day">
+    <div class="activity-center">
+      <ActivityHeader
+        :title="charity?.title || '公益小红花'"
+        :remaining="remaining"
+        :balance="charity?.loveBalance || '0'"
+        :currency-image="charity?.love.image"
+        :currency-name="charity?.love.name || '爱心'"
+        :loading="loading"
+        show-refresh
+        @back="goBack"
+        @refresh="refreshSelectedActivity"
+      />
+      <div v-if="!currentAccountId" class="activity-state detail-state">
+        <strong>请先选择账号</strong><span>活动数据按当前账号加载</span>
+      </div>
+      <div v-else-if="loading && !charity" class="activity-state detail-state">
+        <div class="activity-spinner" /><strong>正在加载公益小红花活动</strong>
+      </div>
+      <template v-else>
+        <div v-if="error || actionError || notice" class="activity-message" :class="{ success: notice && !error && !actionError }" role="status">
+          <span>{{ actionError || error || notice }}</span><button v-if="error" type="button" :disabled="loading" @click="refreshSelectedActivity">
+            重试
+          </button>
+        </div>
+        <main class="activity-content gameplay-content">
+          <CharityRedFlowerView
+            :activity="charity"
+            :pending-seeds="pendingActions.claimCharitySeeds"
+            :pending-donate="pendingActions.donateCharityLove"
+            :pending-daily-gift="pendingActions.claimCharityDailyGift"
+            @claim-seeds="claimCharitySeeds"
+            @donate-love="donateCharityLove"
+            @claim-daily-gift="claimCharityDailyGift"
           />
         </main>
       </template>

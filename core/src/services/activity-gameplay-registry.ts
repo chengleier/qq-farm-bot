@@ -1,6 +1,6 @@
 export {};
 
-type ActivityDetailTarget = 'travel' | 'constellation' | 'shop' | 'solar' | 'qixi' | 'qingmei' | 'weather';
+type ActivityDetailTarget = 'travel' | 'constellation' | 'shop' | 'solar' | 'qixi' | 'qingmei' | 'charity' | 'weather';
 
 interface ActivityGameplayContext {
     season?: any;
@@ -9,6 +9,7 @@ interface ActivityGameplayContext {
     constellation?: any;
     qixi?: any;
     qingMei?: any;
+    charity?: any;
     weather?: any;
 }
 
@@ -85,9 +86,20 @@ const GAMEPLAY_ADAPTERS: readonly ActivityGameplayAdapter[] = [
         ],
     },
     {
+        gameplayKey: 'charity',
+        detailTarget: 'charity',
+        priority: 70,
+        activityIds: context => [
+            '2026090900',
+            '2026090901',
+            context.charity?.groupId,
+            context.charity?.activityId,
+        ],
+    },
+    {
         gameplayKey: 'weather',
         detailTarget: 'weather',
-        priority: 70,
+        priority: 80,
         activityIds: context => [
             '2026070300',
             '2026070301',

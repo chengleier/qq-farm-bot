@@ -950,6 +950,18 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'getCurrentQixiActivity':
                 result = await require('../services/activity-center').getCurrentQixiActivity();
                 break;
+            case 'getCurrentCharityRedFlowerActivity':
+                result = await require('../services/activity-center').getCurrentCharityRedFlowerActivity();
+                break;
+            case 'claimCharityRedFlowerSeeds':
+                result = await require('../services/activity-center').claimCharityRedFlowerSeeds();
+                break;
+            case 'donateCharityRedFlowerLove':
+                result = await require('../services/activity-center').donateCharityRedFlowerLove();
+                break;
+            case 'claimCharityRedFlowerDailyGift':
+                result = await require('../services/activity-center').claimCharityRedFlowerDailyGift();
+                break;
             case 'getCurrentWeatherActivity':
                 result = await require('../services/activity-center').getCurrentWeatherActivity();
                 break;

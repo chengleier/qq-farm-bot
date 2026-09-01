@@ -1,5 +1,6 @@
 import type { ActivityGameplayModule, ResolvedActivityGameplay } from './types'
 import type { ActivityDirectoryItemDto, ActivityGameplayKey } from '@/stores/activity-center'
+import { charityGameplay } from './charity'
 import { qingMeiGameplay } from './qingmei'
 import { qixiGameplay } from './qixi'
 import { stellarGameplay } from './stellar'
@@ -9,6 +10,7 @@ const gameplayModules: Record<ActivityGameplayKey, ActivityGameplayModule> = {
   stellar: stellarGameplay,
   qixi: qixiGameplay,
   qingmei: qingMeiGameplay,
+  charity: charityGameplay,
   weather: weatherGameplay,
 }
 
@@ -17,6 +19,8 @@ function inferGameplayKey(activity: ActivityDirectoryItemDto): ActivityGameplayK
     return activity.gameplayKey
   if (activity.detailTarget === 'weather')
     return 'weather'
+  if (activity.detailTarget === 'charity')
+    return 'charity'
   if (activity.detailTarget === 'qixi')
     return 'qixi'
   if (activity.detailTarget === 'qingmei')
@@ -33,6 +37,8 @@ function inferGameplayKey(activity: ActivityDirectoryItemDto): ActivityGameplayK
     return 'qixi'
   if (['2026081200', '2026081201', '2026081202'].some(id => activityIds.has(id)))
     return 'qingmei'
+  if (['2026090900', '2026090901'].some(id => activityIds.has(id)))
+    return 'charity'
 
   const name = activity.name.trim()
   if (name.includes('雨落成诗'))
@@ -41,6 +47,8 @@ function inferGameplayKey(activity: ActivityDirectoryItemDto): ActivityGameplayK
     return 'qixi'
   if (name.includes('青梅') || name.includes('青酿'))
     return 'qingmei'
+  if (name.includes('公益小红花'))
+    return 'charity'
   if (/千星|星砂|星宿|节令/.test(name))
     return 'stellar'
   return null
