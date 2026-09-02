@@ -38,7 +38,9 @@ const seedStatus = computed(() => {
 const dailyGiftStatus = computed(() => {
   if (props.activity?.dailyGift.claimed)
     return '今日已领取'
-  return '今日收获小红花后可尝试领取'
+  if (!props.activity?.dailyGift.harvestedToday)
+    return '今日收获小红花后可领取'
+  return '可以领取'
 })
 
 const settlementStatus = computed(() => {

@@ -469,6 +469,7 @@ export interface CharityRedFlowerActivityDto {
   dailyGift: {
     statusCode: string
     claimed: boolean
+    harvestedToday: boolean
     reward: ActivityItemDto
     publicFund: { date: string, statusCode: string } | null
   }
@@ -1143,6 +1144,7 @@ function normalizeCharityRedFlower(value: unknown): CharityRedFlowerActivityDto 
     dailyGift: {
       statusCode: text(dailyGift.statusCode, dailyGift.status_code),
       claimed: bool(dailyGift.claimed),
+      harvestedToday: bool(dailyGift.harvestedToday, dailyGift.harvested_today),
       reward: normalizeItem(dailyGift.reward),
       publicFund: Object.keys(publicFund).length > 0
         ? { date: text(publicFund.date), statusCode: text(publicFund.statusCode, publicFund.status_code) }
@@ -1576,12 +1578,17 @@ const activityErrorMessages: Record<string, string> = {
   QIXI_RESPONSE_INVALID: '鹊桥活动数据已经变化，请刷新页面后重试',
   QIXI_GIFT_FAILED: '鹊羽香囊赠送失败，请刷新后重试',
   1034091: '当前爱心不足，无法捐赠',
+  1034087: '该公益进度奖励档位已经领取',
+  1034088: '今天还没有收获小红花，暂时无法领取公益礼包',
   1034092: '今天还没有收获小红花，暂时无法领取公益礼包',
   CHARITY_RED_FLOWER_UNAVAILABLE: '公益小红花活动暂未开放或已经结束',
   CHARITY_RED_FLOWER_RESPONSE_INVALID: '公益小红花活动数据已经变化，请刷新页面后重试',
   CHARITY_SEEDS_UNAVAILABLE: '当前没有可领取的小红花种子',
   INSUFFICIENT_CHARITY_LOVE: '当前没有可捐赠的爱心',
+  CHARITY_PROGRESS_REWARD_UNAVAILABLE: '当前没有可领取的公益进度奖励',
+  CHARITY_PROGRESS_REWARD_ALREADY_CLAIMED: '该公益进度奖励档位已经领取',
   CHARITY_DAILY_GIFT_UNAVAILABLE: '今日公益礼包已经领取或暂不可领取',
+  CHARITY_DAILY_GIFT_NOT_HARVESTED: '今天还没有收获小红花，暂时无法领取公益礼包',
   INVALID_WEATHER_BOTTLE_COUNT: '天气瓶购买数量必须是正整数',
   INVALID_WEATHER_NODE: '研究节点信息无效，请刷新活动后重试',
   INVALID_WEATHER_TARGET_GID: '好友信息无效，请重新选择',

@@ -57,6 +57,10 @@ const CLAIM_CHARITY_SEED_OPERATE_TYPE = 35;
 const DONATE_CHARITY_LOVE_OPERATE_TYPE = 36;
 const CLAIM_CHARITY_PROGRESS_REWARD_OPERATE_TYPE = 37;
 const CLAIM_CHARITY_DAILY_GIFT_OPERATE_TYPE = 38;
+// flow_status is the daily red-flower flow: 1 = not harvested, 2 = harvested
+// and waiting for the daily gift, 3 = daily gift already claimed.
+const CHARITY_FLOW_HARVESTED = '2';
+const CHARITY_FLOW_DAILY_GIFT_CLAIMED = '3';
 const MAX_SIGNED_INT64 = 9223372036854775807n;
 const SECONDS_PER_DAY = 86400;
 const BEIJING_UTC_OFFSET_SECONDS = 8 * 60 * 60;
@@ -807,11 +811,15 @@ function charityRedFlowerDto(entry: any) {
     const seedRewardStatus = int64String(state?.seed_reward_status);
     const publicFundStatus = int64String(state?.public_fund?.status);
     const publicFundDate = int64String(state?.public_fund?.date);
+    const flowStatus = int64String(state?.flow_status);
     const currentDateKey = getSystemDateKey().replace(/-/g, '');
     // public_fund is a historical record and may still contain yesterday's
     // order after the daily reset. Only today's record means today's gift was
     // claimed.
-    const dailyGiftClaimed = publicFundDate !== '0' && publicFundDate === currentDateKey;
+    const dailyGiftClaimed = flowStatus === CHARITY_FLOW_DAILY_GIFT_CLAIMED
+        || (publicFundDate !== '0' && publicFundDate === currentDateKey);
+    const dailyGiftHarvestedToday = flowStatus === CHARITY_FLOW_HARVESTED
+        || flowStatus === CHARITY_FLOW_DAILY_GIFT_CLAIMED;
     const progressRewards = (Array.isArray(state?.progress_rewards) ? state.progress_rewards : []).map((reward: any) => {
         const target = int64String(reward?.target);
         const statusCode = int64String(reward?.status);
@@ -820,9 +828,9 @@ function charityRedFlowerDto(entry: any) {
             reward: itemDto(reward?.reward),
             statusCode,
             reached: compareInt64(donatedLove, target) >= 0,
-            // The capture-verified activity state uses status 1 for an unlocked
-            // milestone and status 0 for a locked one.
-            claimable: compareInt64(donatedLove, target) >= 0 && statusCode === '1',
+            // A captured successful claim changes this status from 0 to 1.
+            // Therefore status 0 means the reached reward is still claimable.
+            claimable: compareInt64(donatedLove, target) >= 0 && statusCode === '0',
             claimSupported: true,
         };
     });
@@ -850,7 +858,7 @@ function charityRedFlowerDto(entry: any) {
         love: itemDto({ item_id: state?.love_item_id, count: loveBalance }),
         loveBalance,
         donatedLove,
-        flowStatus: int64String(state?.flow_status),
+        flowStatus,
         seedReward: {
             statusCode: seedRewardStatus,
             claimable: seedRewardStatus === '2',
@@ -860,6 +868,7 @@ function charityRedFlowerDto(entry: any) {
         dailyGift: {
             statusCode: int64String(state?.daily_reward_status),
             claimed: dailyGiftClaimed,
+            harvestedToday: dailyGiftHarvestedToday,
             reward: itemDto(state?.daily_reward),
             publicFund: publicFundDate !== '0' ? {
                 date: int64String(state?.public_fund?.date),
@@ -894,10 +903,10 @@ function charityRedFlowerDto(entry: any) {
                 count: int64Number(loveBalance),
             },
             claimDailyGift: {
-                enabled: active && !dailyGiftClaimed,
-                available: active && !dailyGiftClaimed,
-                attemptable: active && !dailyGiftClaimed,
-                availabilityKnown: false,
+                enabled: active && dailyGiftHarvestedToday && !dailyGiftClaimed,
+                available: active && dailyGiftHarvestedToday && !dailyGiftClaimed,
+                attemptable: active && dailyGiftHarvestedToday && !dailyGiftClaimed,
+                availabilityKnown: true,
             },
         },
     };
@@ -1371,6 +1380,9 @@ async function claimCharityRedFlowerDailyGift() {
         if (activity.dailyGift.claimed) {
             throw businessError('CHARITY_DAILY_GIFT_UNAVAILABLE', '今日公益礼包已经领取');
         }
+        if (!activity.dailyGift.harvestedToday) {
+            throw businessError('CHARITY_DAILY_GIFT_NOT_HARVESTED', '今天还没有收获小红花，暂时无法领取公益礼包');
+        }
         if (!activity.active) throw businessError('CHARITY_RED_FLOWER_UNAVAILABLE', '公益小红花活动暂未开放或已经结束');
 
         const reply = await operateCharityRedFlower(CLAIM_CHARITY_DAILY_GIFT_OPERATE_TYPE, { send_public_fund: {} });
@@ -1395,7 +1407,13 @@ async function claimCharityRedFlowerProgressReward(input: unknown) {
 
         const target = positiveDecimal(input, 'INVALID_CHARITY_PROGRESS_TARGET', 'target');
         const progress = activity.progressRewards.find((entry: any) => entry.target === target);
-        if (!progress || !progress.claimable) {
+        if (!progress) {
+            throw businessError('CHARITY_PROGRESS_REWARD_UNAVAILABLE', '当前没有可领取的公益进度奖励');
+        }
+        if (progress.statusCode !== '0') {
+            throw businessError('CHARITY_PROGRESS_REWARD_ALREADY_CLAIMED', '该公益进度奖励档位已经领取');
+        }
+        if (!progress.reached) {
             throw businessError('CHARITY_PROGRESS_REWARD_UNAVAILABLE', '当前没有可领取的公益进度奖励');
         }
 
@@ -1936,6 +1954,7 @@ async function claimSolarTerm(termId: string) {
 }
 
 module.exports = {
+    charityRedFlowerDto,
     buildActivityDirectory,
     getActivityDirectorySnapshot,
     getActivityCenterSnapshot,
