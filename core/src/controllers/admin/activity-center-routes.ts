@@ -205,6 +205,9 @@ function mountActivityCenterRoutes(app: Application, ctx: AdminContext): void {
     app.post('/api/activity-center/charity-red-flower/daily-gift/claim', withAccount((accountId: string) => (
         ctx.provider.claimCharityRedFlowerDailyGift(accountId)
     )));
+    app.post('/api/activity-center/charity-red-flower/progress/claim', withAccount((accountId: string, req: Request) => (
+        ctx.provider.claimCharityRedFlowerProgressReward(accountId, req.body?.target)
+    )));
 
     app.post('/api/activity-center/weather/research/light', withAccount((accountId: string, req: Request) => (
         ctx.provider.lightWeatherResearch(accountId, req.body?.nodeId ?? req.body?.node_id)

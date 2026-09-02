@@ -257,6 +257,9 @@ function donateCharityLove() {
 function claimCharityDailyGift() {
   activityStore.claimCharityRedFlowerDailyGift(accountId())
 }
+function claimCharityProgress(target: string) {
+  activityStore.claimCharityRedFlowerProgressReward(accountId(), target)
+}
 function lightWeatherResearch(nodeId: string) {
   activityStore.lightWeatherResearch(accountId(), nodeId)
 }
@@ -557,9 +560,11 @@ onUnmounted(() => {
             :pending-seeds="pendingActions.claimCharitySeeds"
             :pending-donate="pendingActions.donateCharityLove"
             :pending-daily-gift="pendingActions.claimCharityDailyGift"
+            :pending-progress="pendingActions.claimCharityProgress"
             @claim-seeds="claimCharitySeeds"
             @donate-love="donateCharityLove"
             @claim-daily-gift="claimCharityDailyGift"
+            @claim-progress="claimCharityProgress"
           />
         </main>
       </template>

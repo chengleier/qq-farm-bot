@@ -23,7 +23,13 @@ const { resetSessionGains, recordOperation, initStatsWithPersistence, saveStats 
 const { initStatusBar, setStatusPlatform, statusData } = require('../services/status');
 const { setRecordGoldExpHook } = require('../services/status');
 const { cleanupTaskSystem, checkAndClaimTasks, getTaskClaimDailyState, getTaskDailyStateLikeApp, getGrowthTaskStateLikeApp } = require('../services/task');
-const { sellAllFruits, getBag, getBagItems, openFertilizerGiftPacksSilently } = require('../services/warehouse');
+const {
+    sellAllFruits,
+    getBag,
+    getBagItems,
+    openFertilizerGiftPacksSilently,
+    openCharitySettlementGiftPacksSilently,
+} = require('../services/warehouse');
 const { checkAndClaimDogSkillGifts } = require('../services/dog-skill-gifts');
 const { isGatewayHealthyForBusiness, nextBusinessBackoffMs } = require('../utils/low-priority-gate');
 const { connect, cleanup, getWs, getUserState, networkEvents, getGatewayLoad } = require('../utils/network');
@@ -125,6 +131,7 @@ async function runDailyRoutines(force: boolean = false): Promise<void> {
     if (!loginReady) return;
     try {
         await checkAndClaimEmails(force);
+        await openCharitySettlementGiftPacksSilently();
         await checkDailyShareStatus(force);
         await performDailyMonthCardGift(force);
         await buyFreeGifts(force);
@@ -269,7 +276,11 @@ async function runFarmTick(auto: any): Promise<void> {
         await runWithRequestClass('farm', async () => {
             if (auto.farm) await checkFarm();
             if (auto.task) await checkAndClaimTasks();
-            if (auto.email) await checkAndClaimEmails();
+            // Email rewards are part of the normal account routine. The service
+            // itself enforces a five-minute cooldown, so checking here keeps
+            // post-activity settlement mail from waiting for the next login.
+            if (auto.email !== false) await checkAndClaimEmails();
+            if (auto.email !== false) await openCharitySettlementGiftPacksSilently();
             if (auto.fertilizer_gift) await openFertilizerGiftPacksSilently();
         });
     } catch {
@@ -961,6 +972,9 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             case 'claimCharityRedFlowerDailyGift':
                 result = await require('../services/activity-center').claimCharityRedFlowerDailyGift();
+                break;
+            case 'claimCharityRedFlowerProgressReward':
+                result = await require('../services/activity-center').claimCharityRedFlowerProgressReward(args[0]);
                 break;
             case 'getCurrentWeatherActivity':
                 result = await require('../services/activity-center').getCurrentWeatherActivity();

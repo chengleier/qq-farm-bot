@@ -134,6 +134,9 @@ async function main() {
                 ? {
                     claimSeed: decoded?.claim_seed != null,
                     donateLove: decoded?.donate_love != null,
+                    claimProgressReward: decoded?.claim_progress_reward
+                        ? { target: integer(decoded.claim_progress_reward.target) }
+                        : null,
                     sendPublicFund: decoded?.send_public_fund != null,
                     query: decoded?.query ? { accepted: !!decoded.query.accepted } : null,
                 }
@@ -148,6 +151,12 @@ async function main() {
                     count: integer(decoded.charity_donate_result.count),
                     status: integer(decoded.charity_donate_result.status),
                     globalDonated: integer(decoded.charity_donate_result.global_donated),
+                }
+                : null,
+            progressRewardResult: direction === 'RECV' && decoded?.charity_progress_reward_result
+                ? {
+                    target: integer(decoded.charity_progress_reward_result.target),
+                    reward: item(decoded.charity_progress_reward_result.reward),
                 }
                 : null,
             publicFundResult: direction === 'RECV' && decoded?.charity_public_fund_result

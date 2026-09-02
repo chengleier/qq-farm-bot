@@ -22,6 +22,7 @@ test('charity red flower requests reproduce the capture-verified selectors', asy
 
     assert.equal(encode({ operate_type: 35, claim_seed: {} }), '0895e38ec6071023b20800');
     assert.equal(encode({ operate_type: 36, donate_love: {} }), '0895e38ec6071024ba0800');
+    assert.equal(encode({ operate_type: 37, claim_progress_reward: { target: 30 } }), '0895e38ec6071025c20802081e');
     assert.equal(encode({ operate_type: 38, send_public_fund: {} }), '0895e38ec6071026ca0800');
     assert.equal(encode({ operate_type: 39, query: { accepted: true } }), '0895e38ec6071027d208020801');
 });
@@ -45,4 +46,12 @@ test('charity red flower reward replies decode the verified result selectors', a
     assert.equal(Number(fundReply.charity_public_fund_result.reward.count), 2);
     assert.equal(fundReply.charity_public_fund_result.order_id, 'QQNC2699MW20260901');
     assert.equal(fundReply.charity_public_fund_result.token, '20260901_cf_f468083c8ce27afa927064f926d53d4b');
+
+    const progressReply = Reply.decode(Buffer.from(
+        '0895e38ec6071025ca080a081e1206088df1041001',
+        'hex',
+    ));
+    assert.equal(Number(progressReply.charity_progress_reward_result.target), 30);
+    assert.equal(Number(progressReply.charity_progress_reward_result.reward.id), 80013);
+    assert.equal(Number(progressReply.charity_progress_reward_result.reward.count), 1);
 });

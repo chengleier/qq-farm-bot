@@ -7,12 +7,14 @@ const props = defineProps<{
   pendingSeeds: boolean
   pendingDonate: boolean
   pendingDailyGift: boolean
+  pendingProgress: boolean
 }>()
 
 const emit = defineEmits<{
   claimSeeds: []
   donateLove: []
   claimDailyGift: []
+  claimProgress: [target: string]
 }>()
 
 const confirmingDonate = ref(false)
@@ -37,6 +39,19 @@ const dailyGiftStatus = computed(() => {
   if (props.activity?.dailyGift.claimed)
     return '今日已领取'
   return '今日收获小红花后可尝试领取'
+})
+
+const settlementStatus = computed(() => {
+  const settlement = props.activity?.settlement
+  if (!settlement)
+    return ''
+  if (settlement.eligible)
+    return '已获得结算资格'
+  if (!settlement.personalReached)
+    return `还差 ${Math.max(0, Number(settlement.requiredLove) - Number(props.activity?.donatedLove || 0))} 份爱心`
+  if (!settlement.globalReached)
+    return '等待全服爱心目标达成'
+  return '等待活动结束结算'
 })
 
 function formatCount(value: string) {
@@ -198,7 +213,7 @@ watch(() => props.activity?.loveBalance, () => confirmingDonate.value = false)
             <small>个人累计捐赠</small>
             <h2>进度奖励</h2>
           </div>
-          <span class="readonly-label"><span class="i-carbon-locked" /> 仅展示</span>
+          <span class="readonly-label"><span class="i-carbon-unlocked" /> 达成后可领取</span>
         </header>
         <div class="milestone-track">
           <article
@@ -217,7 +232,17 @@ watch(() => props.activity?.loveBalance, () => confirmingDonate.value = false)
               <span>{{ reward.reward.name || reward.reward.id }}</span>
               <b>×{{ reward.reward.count }}</b>
             </div>
-            <small>{{ reward.reached ? '已达成，需在游戏内领取' : '尚未达成' }}</small>
+            <button
+              v-if="reward.claimSupported && reward.claimable"
+              type="button"
+              class="milestone-status milestone-claim"
+              :disabled="pendingProgress"
+              @click="emit('claimProgress', reward.target)"
+            >
+              <span :class="pendingProgress ? 'i-carbon-circle-dash animate-spin' : 'i-carbon-download'" />
+              {{ pendingProgress ? '领取中' : '领取奖励' }}
+            </button>
+            <small v-else class="milestone-status">{{ reward.reached ? '奖励已处理' : '尚未达成' }}</small>
           </article>
         </div>
       </section>
@@ -236,7 +261,7 @@ watch(() => props.activity?.loveBalance, () => confirmingDonate.value = false)
           <b>×{{ activity.settlement.reward.count }}</b>
         </div>
         <span class="settlement-status" :class="{ eligible: activity.settlement.eligible }">
-          {{ activity.settlement.eligible ? '已获得结算资格' : `还差 ${Math.max(0, Number(activity.settlement.requiredLove) - Number(activity.donatedLove))} 份爱心` }}
+          {{ settlementStatus }}
         </span>
       </section>
 
@@ -577,11 +602,19 @@ button:disabled {
   height: 18px;
   display: grid;
   place-items: center;
+  line-height: 1;
   border: 2px solid #cbd5ce;
   border-radius: 50%;
   color: #829087;
   background: #fff;
   transform: translateX(-50%);
+}
+
+.milestone-dot > span {
+  display: block;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
 }
 
 .milestone.reached .milestone-dot {
@@ -603,6 +636,30 @@ button:disabled {
 .milestone small {
   display: block;
   min-height: 32px;
+}
+
+.milestone-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
+.milestone-claim {
+  margin: 4px auto 0;
+  padding: 4px 9px;
+  border: 1px solid #48a879;
+  border-radius: 5px;
+  color: #177a51;
+  background: #effaf4;
+  font-size: 11px;
+}
+
+.milestone-claim:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .milestone.reached small {

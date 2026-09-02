@@ -24,6 +24,8 @@ const FERTILIZER_RELATED_IDS: Set<number> = new Set([
 const FERTILIZER_CONTAINER_LIMIT_HOURS: number = 990;
 const NORMAL_CONTAINER_ID: number = 1011;
 const ORGANIC_CONTAINER_ID: number = 1012;
+const CHARITY_SETTLEMENT_GIFT_ID: number = 101604;
+const SPECIAL_GIFT_CHECK_COOLDOWN_MS: number = 5 * 60 * 1000;
 const NORMAL_FERTILIZER_ITEM_HOURS: Map<number, number> = new Map([
     [80001, 1], [80002, 4], [80003, 8], [80004, 12],
 ]);
@@ -32,6 +34,7 @@ const ORGANIC_FERTILIZER_ITEM_HOURS: Map<number, number> = new Map([
 ]);
 let fertilizerGiftDoneDateKey: string = '';
 let fertilizerGiftLastOpenAt: number = 0;
+let charitySettlementGiftLastOpenAt: number = 0;
 let pendingBagRequest: Promise<any> | null = null;
 
 // ============ API ============
@@ -404,6 +407,50 @@ async function openFertilizerGiftPacksSilently(): Promise<number> {
     return autoOpenFertilizerGiftPacks();
 }
 
+async function openCharitySettlementGiftPacksSilently(): Promise<number> {
+    const now: number = Date.now();
+    if (now - charitySettlementGiftLastOpenAt < SPECIAL_GIFT_CHECK_COOLDOWN_MS) return 0;
+    charitySettlementGiftLastOpenAt = now;
+
+    try {
+        const bagReply: any = await getBag();
+        const giftItems: any[] = getBagItems(bagReply).filter((item: any) => (
+            toNum(item?.id) === CHARITY_SETTLEMENT_GIFT_ID
+            && !isItemLocked(item)
+            && toNum(item?.count) > 0
+        ));
+        if (giftItems.length === 0) return 0;
+
+        let opened: number = 0;
+        for (const item of giftItems) {
+            const count: number = Math.max(1, toNum(item?.count));
+            try {
+                await useItem(CHARITY_SETTLEMENT_GIFT_ID, count, [], toNum(item?.uid));
+                opened += count;
+            } catch {
+                // Retry on a later cooldown if the bag changed or the request failed.
+            }
+        }
+
+        if (opened > 0) {
+            log('仓库', `自动打开公益小红花结算礼包 x${opened}`, {
+                module: 'warehouse',
+                event: 'charity_settlement_gift_open',
+                result: 'ok',
+                count: opened,
+            });
+        }
+        return opened;
+    } catch (e: any) {
+        logWarn('仓库', `打开公益小红花结算礼包失败: ${e.message}`, {
+            module: 'warehouse',
+            event: 'charity_settlement_gift_open',
+            result: 'error',
+        });
+        return 0;
+    }
+}
+
 function getGoldFromItems(items: any[]): number {
     for (const item of (items || [])) {
         const id: number = toNum(item.id);
@@ -760,6 +807,7 @@ module.exports = {
     useItem,
     batchUseItems,
     openFertilizerGiftPacksSilently,
+    openCharitySettlementGiftPacksSilently,
     getFertilizerGiftDailyState: () => ({
         key: 'fertilizer_gift_open',
         doneToday: fertilizerGiftDoneDateKey === getSystemDateKey(),

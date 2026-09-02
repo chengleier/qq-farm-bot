@@ -447,7 +447,8 @@ export interface CharityProgressRewardDto {
   reward: ActivityItemDto
   statusCode: string
   reached: boolean
-  claimSupported: false
+  claimable: boolean
+  claimSupported: boolean
 }
 
 export interface CharityRedFlowerActivityDto {
@@ -473,7 +474,13 @@ export interface CharityRedFlowerActivityDto {
   }
   progressRewards: CharityProgressRewardDto[]
   globalProgress: { donated: string, target: string, reached: boolean, rewardTarget: string, reward: ActivityItemDto }
-  settlement: { requiredLove: string, eligible: boolean, reward: ActivityItemDto }
+  settlement: {
+    requiredLove: string
+    eligible: boolean
+    globalReached: boolean
+    personalReached: boolean
+    reward: ActivityItemDto
+  }
   actions: {
     claimSeeds: ActivityActionDto
     donateLove: ActivityActionDto
@@ -495,7 +502,7 @@ export interface ActivityCenterSnapshotDto {
   actions: ActivityActionsDto
 }
 
-export type ActivityMutationKey = 'claimPass' | 'lightConstellation' | 'claimSolar' | 'exchange' | 'claimQixiBridge' | 'giftQixiSachet' | 'claimQingMeiSeed' | 'startQingMeiBrew' | 'continueQingMeiBrew' | 'settleQingMeiBrew' | 'claimCharitySeeds' | 'donateCharityLove' | 'claimCharityDailyGift' | 'lightWeatherResearch' | 'buyWeatherBottle' | 'scanWeatherFriends' | 'collectWeatherBottle' | 'summonWeatherRain'
+export type ActivityMutationKey = 'claimPass' | 'lightConstellation' | 'claimSolar' | 'exchange' | 'claimQixiBridge' | 'giftQixiSachet' | 'claimQingMeiSeed' | 'startQingMeiBrew' | 'continueQingMeiBrew' | 'settleQingMeiBrew' | 'claimCharitySeeds' | 'donateCharityLove' | 'claimCharityDailyGift' | 'claimCharityProgress' | 'lightWeatherResearch' | 'buyWeatherBottle' | 'scanWeatherFriends' | 'collectWeatherBottle' | 'summonWeatherRain'
 
 function isRecord(value: unknown): value is ActivityRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -907,13 +914,13 @@ function normalizeActivityDirectory(value: unknown): ActivityDirectoryItemDto[] 
         ? 'weather' as const
         : gameplayKey === 'charity' || normalizedDetailTarget === 'charity'
           ? 'charity' as const
-        : gameplayKey === 'qingmei' || normalizedDetailTarget === 'qingmei'
-          ? 'qingmei' as const
-          : gameplayKey === 'qixi' || normalizedDetailTarget === 'qixi'
-            ? 'qixi' as const
-            : gameplayKey === 'stellar' || normalizedDetailTarget
-              ? 'stellar' as const
-              : null,
+          : gameplayKey === 'qingmei' || normalizedDetailTarget === 'qingmei'
+            ? 'qingmei' as const
+            : gameplayKey === 'qixi' || normalizedDetailTarget === 'qixi'
+              ? 'qixi' as const
+              : gameplayKey === 'stellar' || normalizedDetailTarget
+                ? 'stellar' as const
+                : null,
       gameplayTargets: gameplayTargets.length > 0 ? gameplayTargets : normalizedDetailTarget ? [normalizedDetailTarget] : [],
       detailTarget: normalizedDetailTarget,
     }
@@ -1146,7 +1153,8 @@ function normalizeCharityRedFlower(value: unknown): CharityRedFlowerActivityDto 
       reward: normalizeItem(entry.reward),
       statusCode: text(entry.statusCode, entry.status_code, entry.status),
       reached: bool(entry.reached),
-      claimSupported: false,
+      claimable: bool(entry.claimable, entry.canClaim, entry.available),
+      claimSupported: bool(entry.claimSupported, entry.claim_supported),
     })),
     globalProgress: {
       donated: text(globalProgress.donated),
@@ -1158,6 +1166,8 @@ function normalizeCharityRedFlower(value: unknown): CharityRedFlowerActivityDto 
     settlement: {
       requiredLove: text(settlement.requiredLove, settlement.required_love),
       eligible: bool(settlement.eligible),
+      globalReached: bool(settlement.globalReached, settlement.global_reached),
+      personalReached: bool(settlement.personalReached, settlement.personal_reached),
       reward: normalizeItem(settlement.reward),
     },
     actions: {
@@ -1672,6 +1682,7 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
     claimCharitySeeds: false,
     donateCharityLove: false,
     claimCharityDailyGift: false,
+    claimCharityProgress: false,
     lightWeatherResearch: false,
     buyWeatherBottle: false,
     scanWeatherFriends: false,
@@ -1721,7 +1732,7 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
     loadedAccountId.value = ''
     serverClockOffset.value = 0
     clearWeatherFriends()
-    pendingActions.value = { claimPass: false, lightConstellation: false, claimSolar: false, exchange: false, claimQixiBridge: false, giftQixiSachet: false, claimQingMeiSeed: false, startQingMeiBrew: false, continueQingMeiBrew: false, settleQingMeiBrew: false, claimCharitySeeds: false, donateCharityLove: false, claimCharityDailyGift: false, lightWeatherResearch: false, buyWeatherBottle: false, scanWeatherFriends: false, collectWeatherBottle: false, summonWeatherRain: false }
+    pendingActions.value = { claimPass: false, lightConstellation: false, claimSolar: false, exchange: false, claimQixiBridge: false, giftQixiSachet: false, claimQingMeiSeed: false, startQingMeiBrew: false, continueQingMeiBrew: false, settleQingMeiBrew: false, claimCharitySeeds: false, donateCharityLove: false, claimCharityDailyGift: false, claimCharityProgress: false, lightWeatherResearch: false, buyWeatherBottle: false, scanWeatherFriends: false, collectWeatherBottle: false, summonWeatherRain: false }
   }
 
   function clearActionMessages() {
@@ -1907,6 +1918,21 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
       else {
         await load(requestedAccountId, true)
       }
+      if (key === 'claimCharityProgress') {
+        const claimedTarget = text(resultRecord.target)
+        const currentCharity = snapshot.value.charity
+        if (claimedTarget && currentCharity) {
+          snapshot.value = {
+            ...snapshot.value,
+            charity: {
+              ...currentCharity,
+              progressRewards: currentCharity.progressRewards.map(reward => reward.target === claimedTarget
+                ? { ...reward, claimable: false }
+                : reward),
+            },
+          }
+        }
+      }
       const rewards = records(resultRecord.rewards).map(normalizeItem).filter(item => item.id || item.name)
       const rewardSummary = rewards.map(item => `${item.name || item.id}${item.count ? ` ×${item.count}` : ''}`).join('、')
       if (!options.silentSuccess)
@@ -1973,6 +1999,10 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
 
   function claimCharityRedFlowerDailyGift(accountId: string) {
     return mutate('claimCharityDailyGift', '/charity-red-flower/daily-gift/claim', accountId)
+  }
+
+  function claimCharityRedFlowerProgressReward(accountId: string, target: string) {
+    return mutate('claimCharityProgress', '/charity-red-flower/progress/claim', accountId, { target })
   }
 
   function lightWeatherResearch(accountId: string, nodeId: string) {
@@ -2127,6 +2157,7 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
     claimCharityRedFlowerSeeds,
     donateCharityRedFlowerLove,
     claimCharityRedFlowerDailyGift,
+    claimCharityRedFlowerProgressReward,
     lightWeatherResearch,
     buyWeatherBottle,
     inspectWeatherFriend,
