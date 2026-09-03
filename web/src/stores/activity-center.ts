@@ -447,6 +447,7 @@ export interface CharityProgressRewardDto {
   reward: ActivityItemDto
   statusCode: string
   reached: boolean
+  claimed: boolean
   claimable: boolean
   claimSupported: boolean
 }
@@ -1155,6 +1156,7 @@ function normalizeCharityRedFlower(value: unknown): CharityRedFlowerActivityDto 
       reward: normalizeItem(entry.reward),
       statusCode: text(entry.statusCode, entry.status_code, entry.status),
       reached: bool(entry.reached),
+      claimed: bool(entry.claimed),
       claimable: bool(entry.claimable, entry.canClaim, entry.available),
       claimSupported: bool(entry.claimSupported, entry.claim_supported),
     })),
@@ -1934,7 +1936,7 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
             charity: {
               ...currentCharity,
               progressRewards: currentCharity.progressRewards.map(reward => reward.target === claimedTarget
-                ? { ...reward, claimable: false }
+                ? { ...reward, claimed: true, claimable: false }
                 : reward),
             },
           }

@@ -244,7 +244,9 @@ watch(() => props.activity?.loveBalance, () => confirmingDonate.value = false)
               <span :class="pendingProgress ? 'i-carbon-circle-dash animate-spin' : 'i-carbon-download'" />
               {{ pendingProgress ? '领取中' : '领取奖励' }}
             </button>
-            <small v-else class="milestone-status">{{ reward.reached ? '奖励已处理' : '尚未达成' }}</small>
+            <small v-else class="milestone-status">
+              {{ reward.claimed ? '奖励已领取' : reward.reached ? '奖励已达成' : '尚未达成' }}
+            </small>
           </article>
         </div>
       </section>
