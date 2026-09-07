@@ -10,6 +10,30 @@ const api = axios.create({
   timeout: 10000,
 })
 
+export function normalizeApiErrorMessage(raw: unknown): string {
+  const text = String(raw || '').trim()
+  if (!text)
+    return ''
+
+  const codeMatch = text.match(/\bcode=\d+\b\s*(.*)$/)
+  const codeIndex = codeMatch?.index ?? -1
+  if (codeMatch?.[1] && codeIndex >= 0 && text.slice(0, codeIndex).includes('.'))
+    return codeMatch[1].trim()
+  return text
+}
+
+export function getApiErrorMessage(error: unknown, fallback = '请求失败'): string {
+  const candidate = error as any
+  const data = candidate?.response?.data
+    || (candidate && typeof candidate === 'object' ? candidate : null)
+  const raw = data?.errorMessage
+    || data?.error
+    || data?.message
+    || candidate?.message
+    || (typeof error === 'string' ? error : '')
+  return normalizeApiErrorMessage(raw) || fallback
+}
+
 api.interceptors.request.use((config) => {
   const token = tokenRef.value
   if (token) {
@@ -25,6 +49,16 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use((response) => {
+  const responseData = response?.data
+  const skipToast = (response?.config as any)?.skipErrorToast
+  if (responseData && typeof responseData === 'object' && responseData.ok === false) {
+    const message = getApiErrorMessage(responseData, '')
+    if (message) {
+      responseData.error = message
+      if (!skipToast)
+        useToastStore().error(message)
+    }
+  }
   return response
 }, (error) => {
   // Aborting an in-flight request is expected when a modal closes or a QR flow restarts.
@@ -32,6 +66,12 @@ api.interceptors.response.use((response) => {
     return Promise.reject(error)
 
   const toast = useToastStore()
+  const normalizedMessage = getApiErrorMessage(error, '')
+  if (normalizedMessage) {
+    error.message = normalizedMessage
+    if (error.response?.data && typeof error.response.data === 'object')
+      error.response.data.error = normalizedMessage
+  }
 
   // 支持 skipErrorToast 配置，让调用方自行处理错误
   const skipToast = error.config?.skipErrorToast
@@ -46,18 +86,18 @@ api.interceptors.response.use((response) => {
       }
     }
     else if (error.response.status >= 500) {
-      const backendError = String(error.response.data?.error || error.response.data?.message || '')
+      const backendError = getApiErrorMessage(error, '')
       // 后端运行态可预期错误：不弹全局500，交给页面状态处理
       if (backendError === '账号未运行' || backendError === 'API Timeout') {
         return Promise.reject(error)
       }
       if (!skipToast) {
-        toast.error(`服务器错误: ${error.response.status} ${error.response.statusText}`)
+        toast.error(backendError || '请求失败，请稍后重试')
       }
     }
     else {
       if (!skipToast) {
-        toast.error(`请求失败，请联系管理员！`)
+        toast.error(getApiErrorMessage(error, `请求失败，请联系管理员！`))
       }
     }
   }
@@ -68,7 +108,7 @@ api.interceptors.response.use((response) => {
   }
   else {
     if (!skipToast) {
-      toast.error(`错误: ${error.message}`)
+      toast.error(`错误: ${getApiErrorMessage(error, '请求失败')}`)
     }
   }
 

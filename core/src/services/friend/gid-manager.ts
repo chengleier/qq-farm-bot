@@ -3,7 +3,7 @@
  */
 
 const { parentPort } = require('node:worker_threads');
-const { sendMsgAsync } = require('../../utils/network');
+const { sendMsgAsync, GatewayError } = require('../../utils/network');
 const { types } = require('../../utils/proto');
 const { toNum, toLong, log, logWarn, randomDelay } = require('../../utils/utils');
 const {
@@ -284,6 +284,7 @@ export async function fetchQqFriendsByKnownGids(priority: 'low' | 'normal' = 'no
 
 export async function fetchQqFriendsByLegacyMethod(priority: 'low' | 'normal' = 'normal'): Promise<any[]> {
     const errors: string[] = [];
+    let lastGatewayError: any = null;
 
     try {
         const syncReq: any = types.SyncAllRequest || types.SyncAllFriendsRequest;
@@ -293,6 +294,7 @@ export async function fetchQqFriendsByLegacyMethod(priority: 'low' | 'normal' = 
         const { body: replyBody } = await sendMsgAsync('gamepb.friendpb.FriendService', 'SyncAll', body, { priority });
         return extractReplyFriends(syncRep.decode(replyBody));
     } catch (e: any) {
+        if (e instanceof GatewayError || e?.name === 'GatewayError' || typeof e?.errorMessage === 'string') lastGatewayError = e;
         errors.push(`SyncAll: ${e.message}`);
     }
 
@@ -302,9 +304,11 @@ export async function fetchQqFriendsByLegacyMethod(priority: 'low' | 'normal' = 
         const { body: replyBody } = await sendMsgAsync('gamepb.friendpb.FriendService', 'GetAll', body, { priority });
         return extractReplyFriends(types.GetAllFriendsReply.decode(replyBody));
     } catch (e: any) {
+        if (e instanceof GatewayError || e?.name === 'GatewayError' || typeof e?.errorMessage === 'string') lastGatewayError = e;
         errors.push(`GetAll: ${e.message}`);
     }
 
+    if (lastGatewayError) throw lastGatewayError;
     throw new Error(errors.join(' | '));
 }
 

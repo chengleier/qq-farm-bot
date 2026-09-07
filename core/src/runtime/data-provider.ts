@@ -112,29 +112,29 @@ function createDataProvider(options: DataProviderOptions) {
             return { cleared: before - after, accountId };
         },
 
-        getLands: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getLands'),
+        getLands: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getLands', true),
         getIllustratedSnapshot: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getIllustratedSnapshot'),
-        getFriends: (accountRef: string, forceSync = false) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriends', forceSync),
+        getFriends: (accountRef: string, forceSync = false) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriends', forceSync, true),
         getFriendsCache: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendsCache'),
         clearFriendsCache: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'clearFriendsCache'),
         getInteractRecords: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getInteractRecords'),
-        getFriendLands: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendLands', gid),
+        getFriendLands: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendLands', gid, true),
         getFriendInteractionItems: (accountRef: string) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'getFriendInteractionItems')
+            callWorkerApi(resolveAccountRefId(accountRef), 'getFriendInteractionItems', true)
         ),
         useFriendInteractionItemBatch: (accountRef: string, gid: unknown, itemId: unknown, landIds: unknown) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'useFriendInteractionItemBatch', gid, itemId, landIds)
+            callWorkerApi(resolveAccountRefId(accountRef), 'useFriendInteractionItemBatch', gid, itemId, landIds, true)
         ),
         useFriendFarmInteractionItem: (accountRef: string, gid: unknown, itemId: unknown) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'useFriendFarmInteractionItem', gid, itemId)
+            callWorkerApi(resolveAccountRefId(accountRef), 'useFriendFarmInteractionItem', gid, itemId, true)
         ),
         getSelfInteractionItems: (accountRef: string) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'getSelfInteractionItems')
+            callWorkerApi(resolveAccountRefId(accountRef), 'getSelfInteractionItems', true)
         ),
         useSelfInteractionItemBatch: (accountRef: string, itemId: unknown, landIds: unknown) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'useSelfInteractionItemBatch', itemId, landIds)
+            callWorkerApi(resolveAccountRefId(accountRef), 'useSelfInteractionItemBatch', itemId, landIds, true)
         ),
-        doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType),
+        doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType, true),
         delFriend: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'delFriend', gid),
         getBag: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),
@@ -165,7 +165,7 @@ function createDataProvider(options: DataProviderOptions) {
         getPetProtectLogs: (accountRef: string) => (
             callWorkerApi(resolveAccountRefId(accountRef), 'getPetProtectLogs')
         ),
-        getDailyGifts: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getDailyGiftOverview'),
+        getDailyGifts: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getDailyGiftOverview', true),
         getActivityDirectorySnapshot: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getActivityDirectorySnapshot'),
         getActivityCenterSnapshot: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getActivityCenterSnapshot'),
         getCurrentSeasonEvent: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getCurrentSeasonEvent'),
@@ -232,7 +232,7 @@ function createDataProvider(options: DataProviderOptions) {
         purchaseMysteryOffer: (accountRef: string, npcId: unknown) => (
             callWorkerApi(resolveAccountRefId(accountRef), 'purchaseMysteryOffer', npcId)
         ),
-        getSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getSeeds'),
+        getSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getSeeds', true),
 
         setAutomation: async (accountRef: string, key: string, value: any) => {
             const accountId = resolveAccountRefId(accountRef);
@@ -246,15 +246,15 @@ function createDataProvider(options: DataProviderOptions) {
         },
 
         doFarmOp: (accountRef: string, opType: string, targetLandId: unknown = null) => (
-            callWorkerApi(resolveAccountRefId(accountRef), 'doFarmOp', opType, targetLandId)
+            callWorkerApi(resolveAccountRefId(accountRef), 'doFarmOp', opType, targetLandId, true)
         ),
         fertilizeOwnLand: (accountRef: string, landId: unknown, fertilizerType: unknown) => (
             callWorkerApi(resolveAccountRefId(accountRef), 'fertilizeOwnLand', landId, fertilizerType)
         ),
 
         doAnalytics: (accountRef: string, sortBy: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getAnalytics', sortBy),
-        buyFertilizer: (accountRef: string, type: string, count: number) => callWorkerApi(resolveAccountRefId(accountRef), 'buyFertilizer', type, count),
-        checkAndBuyFertilizer: (accountRef: string, options: any) => callWorkerApi(resolveAccountRefId(accountRef), 'checkAndBuyFertilizer', options),
+        buyFertilizer: (accountRef: string, type: string, count: number) => callWorkerApi(resolveAccountRefId(accountRef), 'buyFertilizer', type, count, true),
+        checkAndBuyFertilizer: (accountRef: string, options: any) => callWorkerApi(resolveAccountRefId(accountRef), 'checkAndBuyFertilizer', options, true),
         saveSettings: async (accountRef: string, payload: any) => {
             const accountId = resolveAccountRefId(accountRef);
             if (!accountId) {

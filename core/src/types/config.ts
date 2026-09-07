@@ -109,6 +109,13 @@ export interface UIConfig {
   theme: 'light' | 'dark';
 }
 
+export interface LoginSettings {
+  wechatQrLogin: boolean;
+  qqQrLogin: boolean;
+  napCatEndpoint: string;
+  napCatSignature: string;
+}
+
 export interface DeviceInfo {
   os: string;
   clientVersion: string;
@@ -133,6 +140,7 @@ export interface GlobalConfig {
   accountConfigs: Record<string, AccountConfig>;
   defaultAccountConfig: AccountConfig;
   ui: UIConfig;
+  loginSettings: LoginSettings;
   offlineReminder: OfflineReminder;
   systemConfig: SystemConfig | null;
 }

@@ -466,6 +466,7 @@ export interface CharityRedFlowerActivityDto {
   loveBalance: string
   donatedLove: string
   flowStatus: string
+  agreementStatus: string
   seedReward: { statusCode: string, claimable: boolean, claimed: boolean, reward: ActivityItemDto }
   dailyGift: {
     statusCode: string
@@ -1136,6 +1137,7 @@ function normalizeCharityRedFlower(value: unknown): CharityRedFlowerActivityDto 
     loveBalance: text(raw.loveBalance, raw.love_balance),
     donatedLove: text(raw.donatedLove, raw.donated_love),
     flowStatus: text(raw.flowStatus, raw.flow_status),
+    agreementStatus: text(raw.agreementStatus, raw.agreement_status),
     seedReward: {
       statusCode: text(seedReward.statusCode, seedReward.status_code),
       claimable: bool(seedReward.claimable),
@@ -1591,6 +1593,7 @@ const activityErrorMessages: Record<string, string> = {
   CHARITY_PROGRESS_REWARD_ALREADY_CLAIMED: '该公益进度奖励档位已经领取',
   CHARITY_DAILY_GIFT_UNAVAILABLE: '今日公益礼包已经领取或暂不可领取',
   CHARITY_DAILY_GIFT_NOT_HARVESTED: '今天还没有收获小红花，暂时无法领取公益礼包',
+  CHARITY_AGREEMENT_REQUIRED: '请先同意公益活动规则',
   INVALID_WEATHER_BOTTLE_COUNT: '天气瓶购买数量必须是正整数',
   INVALID_WEATHER_NODE: '研究节点信息无效，请刷新活动后重试',
   INVALID_WEATHER_TARGET_GID: '好友信息无效，请重新选择',
@@ -1919,6 +1922,20 @@ export const useActivityCenterStore = defineStore('activity-center', () => {
         if (path.startsWith('/weather/') && !Object.prototype.hasOwnProperty.call(mutationRecord, 'weather')) {
           const current = record(snapshot.value)
           applySnapshot({ ...current, weather: mutationSnapshot })
+        }
+        else if (path.startsWith('/charity-red-flower/') && !Object.prototype.hasOwnProperty.call(mutationRecord, 'charity')) {
+          const current = record(snapshot.value)
+          const charityActions = record(mutationRecord.actions)
+          applySnapshot({
+            ...current,
+            charity: mutationSnapshot,
+            actions: {
+              ...record(current.actions),
+              charityClaimSeeds: charityActions.claimSeeds,
+              charityDonateLove: charityActions.donateLove,
+              charityClaimDailyGift: charityActions.claimDailyGift,
+            },
+          })
         }
         else {
           applySnapshot(mutationSnapshot)

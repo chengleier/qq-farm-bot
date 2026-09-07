@@ -56,16 +56,41 @@ function getAccountIds(ctx: AdminContext): string[] {
 }
 
 const isSoftRuntimeError = (err: any): boolean => {
-    const message = String(err?.message || '');
+    const message = String(typeof err === 'string' ? err : err?.message || '');
     return message === '账号未运行' || message === 'API Timeout';
 };
 
+function isGatewayProtocolError(err: any): boolean {
+    const message = String(typeof err === 'string' ? err : err?.message || '').trim();
+    return String(err?.name || '') === 'GatewayError'
+        || typeof err?.errorMessage === 'string'
+        || typeof err?.error_message === 'string'
+        || /^(?:[\w-]+\.)+[\w-]+(?:\s+.*?)?\bcode=\d+(?:\s|$)/.test(message);
+}
+
+function getProtocolErrorMessage(err: any): string {
+    const direct = String(err?.errorMessage || err?.error_message || '').trim();
+    if (direct) return direct;
+
+    const message = String(typeof err === 'string' ? err : err?.message || '').trim();
+    if (!isGatewayProtocolError(err)) return '';
+    return message.match(/\bcode=\d+\b\s*(.*)$/)?.[1]?.trim() || '';
+}
+
 function handleApiError(res: Response, err: any): void {
-    if (isSoftRuntimeError(err)) {
-        res.json({ ok: false, error: err.message });
+    const protocolMessage = getProtocolErrorMessage(err);
+    const payload: any = {
+        ok: false,
+        error: protocolMessage || (typeof err === 'string' ? err : err?.message) || 'Unknown error',
+    };
+    if (protocolMessage) payload.errorMessage = protocolMessage;
+    const errorCode = Number(err?.code);
+    if (Number.isFinite(errorCode) && errorCode !== 0) payload.errorCode = errorCode;
+    if (isSoftRuntimeError(err) || isGatewayProtocolError(err)) {
+        res.json(payload);
         return;
     }
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json(payload);
 }
 
 function resolveAccId(ctx: AdminContext, rawRef: any): string {
@@ -105,6 +130,8 @@ module.exports = {
     getAccountList,
     getAccountIds,
     isSoftRuntimeError,
+    isGatewayProtocolError,
+    getProtocolErrorMessage,
     handleApiError,
     resolveAccId,
     getAccId,

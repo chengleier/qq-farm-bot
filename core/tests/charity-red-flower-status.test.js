@@ -52,6 +52,26 @@ test('charity daily gift follows the red-flower flow status', () => {
     assert.equal(claimed.actions.claimDailyGift.enabled, false);
 });
 
+test('charity activity uses the activity window when detail timing is stale', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const entry = makeEntry({ flowStatus: '2' });
+    entry.activity.begin_time = '0';
+    entry.activity.end_time = '0';
+    const activity = charityRedFlowerDto(entry, null, {
+        id: '2026090901',
+        begin_time: String(now + 3600),
+        end_time: String(now + 7200),
+    });
+
+    assert.equal(activity.active, false);
+    assert.equal(activity.startTime, String(now + 3600));
+    assert.equal(activity.actions.claimSeeds.enabled, false);
+    assert.equal(activity.actions.donateLove.enabled, false);
+    assert.equal(activity.actions.claimDailyGift.enabled, false);
+    assert.equal(activity.seedReward.claimable, false);
+    assert.equal(activity.progressRewards[0].claimable, false);
+});
+
 test('charity progress capture maps the claimed prefix, pending frontier, and locked suffix', () => {
     const entry = makeEntry({
         flowStatus: '2',

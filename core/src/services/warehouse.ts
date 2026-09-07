@@ -556,6 +556,7 @@ async function getBagDetail(): Promise<any> {
         const groupKey: string = `uid:${uid}`;
         const info: any = getItemById(id) || null;
         let name: string = info && info.name ? String(info.name) : '';
+        const itemType: number = info ? (Number(info.type) || 0) : 0;
         let category: string = 'item';
         if (id === 1 || id === 1001) {
             name = '金币';
@@ -563,10 +564,13 @@ async function getBagDetail(): Promise<any> {
         } else if (id === 1101) {
             name = '经验';
             category = 'exp';
-        } else if (getPlantByFruitId(id)) {
+        } else if (itemType === 17) {
+            if (!name) name = `${getFruitName(id)}果实`;
+            category = 'mutant';
+        } else if (itemType === 6 || getPlantByFruitId(id)) {
             if (!name) name = `${getFruitName(id)}果实`;
             category = 'fruit';
-        } else if (getPlantBySeedId(id)) {
+        } else if (itemType === 5 || getPlantBySeedId(id)) {
             const p: any = getPlantBySeedId(id);
             if (!name) name = `${p && p.name ? p.name : '未知'}种子`;
             category = 'seed';
@@ -597,7 +601,7 @@ async function getBagDetail(): Promise<any> {
                 name,
                 image: getItemImageById(id),
                 category,
-                itemType: info ? (Number(info.type) || 0) : 0,
+                itemType,
                 sellable: sellInfo.sellable,
                 sellStatus: sellInfo.status,
                 sellCondition: sellInfo.condition,
@@ -629,9 +633,9 @@ async function getBagDetail(): Promise<any> {
         const taRaw: number = Number(a.itemType || 0);
         const tbRaw: number = Number(b.itemType || 0);
         const typePriority: Map<number, number> = new Map([
-            [17, 0],
-            [5, 1],
-            [6, 2],
+            [6, 0],
+            [17, 1],
+            [5, 2],
         ]);
         const ta: number = typePriority.has(taRaw) ? typePriority.get(taRaw) as number : (taRaw > 0 ? (1000 + taRaw) : Number.MAX_SAFE_INTEGER);
         const tb: number = typePriority.has(tbRaw) ? typePriority.get(tbRaw) as number : (tbRaw > 0 ? (1000 + tbRaw) : Number.MAX_SAFE_INTEGER);

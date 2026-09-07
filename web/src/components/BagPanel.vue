@@ -4,6 +4,7 @@ import { NButton } from 'naive-ui/es/button'
 import { NInputNumber } from 'naive-ui/es/input-number'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
+import { getApiErrorMessage } from '@/api'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
@@ -44,9 +45,9 @@ const selectedCategory = ref<CategoryValue>('fruit')
 
 function getItemCategory(item: any): CategoryValue {
   const itemType = Number(item?.itemType || 0)
-  if (itemType === 17)
-    return 'fruit'
   if (itemType === 6)
+    return 'fruit'
+  if (itemType === 17)
     return 'mutant'
   if (itemType === 5)
     return 'seed'
@@ -87,6 +88,11 @@ const viewModal = ref({
 
 function isDogFood(item: any) {
   return DOG_FOOD_DURATIONS.has(Number(item?.id || 0))
+}
+
+function isFertilizer(item: any) {
+  const interactionType = String(item?.interactionType || '').trim().toLowerCase()
+  return interactionType === 'fertilizer' || interactionType === 'fertilizerpro'
 }
 
 function dogFoodMaxUseCount(item: any) {
@@ -184,7 +190,7 @@ function canBatchSell(item: any) {
 
 function canUse(item: any) {
   const itemType = Number(item?.itemType || 0)
-  return (itemType === 11 || isDogFood(item)) && item?.locked !== true
+  return (itemType === 11 || isDogFood(item) || isFertilizer(item)) && item?.locked !== true
 }
 
 function isLockable(item: any) {
@@ -430,7 +436,8 @@ async function handleConfirm() {
     }
   }
   catch (e: any) {
-    toastStore.error(`操作失败: ${e.message || '未知错误'}`)
+    const message = getApiErrorMessage(e, '未知错误')
+    toastStore.error(`操作失败: ${message}`)
   }
   finally {
     confirmModal.value.loading = false

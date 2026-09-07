@@ -55,12 +55,13 @@ async function checkFarm(): Promise<boolean> {
 /**
  * smart 有机肥可能让作物在本轮成熟。施肥后只重查并收获一次，避免形成请求循环。
  */
-async function harvestMatureOwnLandsOnce(actions: string[]): Promise<number> {
+async function harvestMatureOwnLandsOnce(actions: string[], propagateErrors: boolean = false): Promise<number> {
     let latest: any;
     try {
         latest = await getAllLands();
     } catch (e: any) {
         logWarn('收获', `施肥后刷新土地失败: ${e.message}`);
+        if (propagateErrors) throw e;
         return 0;
     }
 
@@ -94,6 +95,7 @@ async function harvestMatureOwnLandsOnce(actions: string[]): Promise<number> {
             event: '施肥后收获作物',
             result: 'error',
         });
+        if (propagateErrors) throw e;
         return 0;
     }
 }
@@ -105,6 +107,7 @@ async function harvestMatureOwnLandsOnce(actions: string[]): Promise<number> {
 async function runFarmOperation(
     opType: string,
     targetLandIdInput: unknown = null,
+    propagateErrors: boolean = false,
 ): Promise<{ hadWork: boolean; actions: string[] }> {
     const landsReply = await getAllLands();
     if (!landsReply.lands || landsReply.lands.length === 0) {
@@ -188,7 +191,7 @@ async function runFarmOperation(
                 recordOperation('farming', farmingLandIds.length);
             } catch (e: any) {
                 logWarn(hasTargetLandId ? '单点务农' : '一键务农', e.message);
-                if (hasTargetLandId) throw e;
+                if (hasTargetLandId || propagateErrors) throw e;
             }
         }
     }
@@ -222,6 +225,7 @@ async function runFarmOperation(
                     event: '收获作物',
                     result: 'error',
                 });
+                if (propagateErrors) throw e;
             }
         }
     }
@@ -241,10 +245,13 @@ async function runFarmOperation(
         if (allDeadLands.length > 0 || allEmptyLands.length > 0) {
             try {
                 const plantCount = allDeadLands.length + allEmptyLands.length;
-                await autoPlantEmptyLands(allDeadLands, allEmptyLands);
+                await autoPlantEmptyLands(allDeadLands, allEmptyLands, { propagateErrors });
                 actions.push(`种植${plantCount}`);
                 recordOperation('plant', plantCount);
-            } catch (e: any) { logWarn('种植', e.message); }
+            } catch (e: any) {
+                logWarn('种植', e.message);
+                if (propagateErrors) throw e;
+            }
         }
     }
     if (opType === 'all' && postHarvest && Array.isArray(postHarvest.growing) && postHarvest.growing.length > 0 && isAutomationOn('fertilizer_multi_season')) {
@@ -258,13 +265,14 @@ async function runFarmOperation(
                 landIds: multiSeasonTargets,
             });
             try {
-                await runFertilizerByConfig(multiSeasonTargets, { reason: 'multi_season' });
+                await runFertilizerByConfig(multiSeasonTargets, { reason: 'multi_season', propagateErrors });
             } catch (e: any) {
                 logWarn('施肥', `多季补肥执行失败: ${e.message}`, {
                     module: 'farm',
                     event: '多季节施肥',
                     result: 'error',
                 });
+                if (propagateErrors) throw e;
             }
         }
     }
@@ -285,6 +293,7 @@ async function runFarmOperation(
                     logWarn('解锁', `土地#${landId} 解锁失败: ${e.message}`, {
                         module: 'farm', event: '解锁土地', result: 'error', landId
                     });
+                    if (propagateErrors) throw e;
                 }
                 await randomDelay(1000, 1500);
             }
@@ -307,6 +316,7 @@ async function runFarmOperation(
                     log('升级', `土地#${landId} 升级失败: ${e.message}`, {
                         module: 'farm', event: '升级土地', result: 'error', landId
                     });
+                    if (propagateErrors) throw e;
                 }
                 await randomDelay(1000, 1500);
             }
@@ -321,13 +331,14 @@ async function runFarmOperation(
         const fertilizerConfig = getAutomation().fertilizer || 'none';
         if (fertilizerConfig === 'smart') {
             try {
-                const result = await runFertilizerByConfig([], { skipNormal: true });
+                const result = await runFertilizerByConfig([], { skipNormal: true, propagateErrors });
                 if (result.organic > 0) {
                     actions.push(`有机肥${result.organic}`);
-                    await harvestMatureOwnLandsOnce(actions);
+                    await harvestMatureOwnLandsOnce(actions, propagateErrors);
                 }
             } catch (e: any) {
                 logWarn('施肥', `巡田时施肥失败: ${e.message}`);
+                if (propagateErrors) throw e;
             }
         }
     }

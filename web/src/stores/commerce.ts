@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 
 export interface CommerceItemDto {
   id: number
@@ -133,7 +133,7 @@ export const useCommerceStore = defineStore('commerce', () => {
       if (!isCurrent(version, id))
         return
       if (!response.data?.ok)
-        throw new Error(response.data?.error || '商城加载失败')
+        throw new Error(getApiErrorMessage(response.data, '商城加载失败'))
       const catalog = response.data.data as MallCatalogDto
       await mergeDiamondBalance(id, catalog)
       if (!isCurrent(version, id))
@@ -143,7 +143,7 @@ export const useCommerceStore = defineStore('commerce', () => {
     catch (cause: any) {
       if (!isCurrent(version, id))
         return
-      error.value = cause?.response?.data?.error || cause?.message || '商城加载失败'
+      error.value = getApiErrorMessage(cause, '商城加载失败')
     }
     finally {
       if (isCurrent(version, id))
@@ -166,7 +166,7 @@ export const useCommerceStore = defineStore('commerce', () => {
         skipErrorToast: true,
       } as any)
       if (!response.data?.ok)
-        throw new Error(response.data?.error || '购买失败')
+        throw new Error(getApiErrorMessage(response.data, '购买失败'))
       if (String(localStorage.getItem('current_account_id') || '') !== id)
         return false
       const catalog = response.data.data.catalog as MallCatalogDto
@@ -182,7 +182,7 @@ export const useCommerceStore = defineStore('commerce', () => {
     }
     catch (cause: any) {
       if (String(localStorage.getItem('current_account_id') || '') === id)
-        error.value = cause?.response?.data?.error || cause?.message || '购买失败'
+        error.value = getApiErrorMessage(cause, '购买失败')
       return false
     }
     finally {
@@ -207,13 +207,13 @@ export const useCommerceStore = defineStore('commerce', () => {
       if (!isCurrent(version, id))
         return
       if (!response.data?.ok)
-        throw new Error(response.data?.error || '神秘商人加载失败')
+        throw new Error(getApiErrorMessage(response.data, '神秘商人加载失败'))
       mystery.value = response.data.data
     }
     catch (cause: any) {
       if (!isCurrent(version, id))
         return
-      error.value = cause?.response?.data?.error || cause?.message || '神秘商人加载失败'
+      error.value = getApiErrorMessage(cause, '神秘商人加载失败')
     }
     finally {
       if (isCurrent(version, id))
@@ -233,7 +233,7 @@ export const useCommerceStore = defineStore('commerce', () => {
         skipErrorToast: true,
       } as any)
       if (!response.data?.ok)
-        throw new Error(response.data?.error || '购买失败')
+        throw new Error(getApiErrorMessage(response.data, '购买失败'))
       if (String(localStorage.getItem('current_account_id') || '') !== id)
         return false
       mystery.value = response.data.data.shop
@@ -250,7 +250,7 @@ export const useCommerceStore = defineStore('commerce', () => {
     }
     catch (cause: any) {
       if (String(localStorage.getItem('current_account_id') || '') === id)
-        error.value = cause?.response?.data?.error || cause?.message || '购买失败'
+        error.value = getApiErrorMessage(cause, '购买失败')
       return false
     }
     finally {

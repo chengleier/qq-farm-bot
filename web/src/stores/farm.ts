@@ -6,7 +6,7 @@ import type {
 } from '@/stores/friend'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage, normalizeApiErrorMessage } from '@/api'
 
 export type FertilizerType = 'normal' | 'organic'
 
@@ -32,11 +32,7 @@ export interface FertilizeLandResult {
 }
 
 function userFacingFertilizeError(raw: unknown, fallback = '施肥失败') {
-  const text = String(raw || '').trim()
-  if (!text)
-    return fallback
-  const chinese = text.match(/错误:\s*code=\d+\s+(.+)$/)?.[1]
-  return (chinese || text).trim() || fallback
+  return getApiErrorMessage(raw, fallback)
 }
 
 // UseReply.land 是刚成功操作后的权威快照，短期内不允许被随后的 AllLands 旧快照覆盖。
@@ -160,7 +156,7 @@ export const useFarmStore = defineStore('farm', () => {
       }
       career.value = null
       socialEvents.value = []
-      error.value = String(data?.error || '无法读取土地数据')
+      error.value = getApiErrorMessage(data, '无法读取土地数据')
       return false
     }
     catch (cause: any) {
@@ -168,7 +164,7 @@ export const useFarmStore = defineStore('farm', () => {
         return false
       career.value = null
       socialEvents.value = []
-      error.value = String(cause?.response?.data?.error || cause?.message || '无法读取土地数据，请稍后重试')
+      error.value = getApiErrorMessage(cause, '无法读取土地数据，请稍后重试')
       return false
     }
     finally {
@@ -233,7 +229,7 @@ export const useFarmStore = defineStore('farm', () => {
         return false
       if (!res.data?.ok) {
         interactionItems.value = []
-        interactionItemsError.value = String(res.data?.error || '无法读取可用的互动道具')
+        interactionItemsError.value = getApiErrorMessage(res.data, '无法读取可用的互动道具')
         return false
       }
       interactionItems.value = Array.isArray(res.data?.data?.items) ? res.data.data.items : []
@@ -243,7 +239,7 @@ export const useFarmStore = defineStore('farm', () => {
       if (sequence !== interactionItemsRequestSequence)
         return false
       interactionItems.value = []
-      interactionItemsError.value = String(cause?.response?.data?.error || cause?.message || '无法读取可用的互动道具')
+      interactionItemsError.value = getApiErrorMessage(cause, '无法读取可用的互动道具')
       return false
     }
     finally {
@@ -268,10 +264,16 @@ export const useFarmStore = defineStore('farm', () => {
         skipErrorToast: true,
       } as any)
       if (!res.data?.ok) {
-        interactionUseError.value = String(res.data?.error || '互动道具使用失败')
+        interactionUseError.value = getApiErrorMessage(res.data, '互动道具使用失败')
         return false
       }
       const result = res.data.data as FriendInteractionBatchDto
+      if (result && typeof result.message === 'string')
+        result.message = normalizeApiErrorMessage(result.message)
+      for (const item of result?.results || []) {
+        if (item && typeof item.message === 'string')
+          item.message = normalizeApiErrorMessage(item.message)
+      }
       if (Array.isArray(result?.items))
         interactionItems.value = result.items
       const key = interactionUsageKey(accountId, result.itemId)
@@ -286,7 +288,7 @@ export const useFarmStore = defineStore('farm', () => {
       return result
     }
     catch (cause: any) {
-      interactionUseError.value = String(cause?.response?.data?.error || cause?.message || '互动道具使用失败')
+      interactionUseError.value = getApiErrorMessage(cause, '互动道具使用失败')
       return false
     }
     finally {
@@ -318,7 +320,7 @@ export const useFarmStore = defineStore('farm', () => {
         skipErrorToast: true,
       } as any)
       if (!res.data?.ok) {
-        fertilizeError.value = userFacingFertilizeError(res.data?.error)
+        fertilizeError.value = userFacingFertilizeError(res.data)
         return false
       }
       const result = res.data.data as FertilizeLandResult
@@ -329,7 +331,7 @@ export const useFarmStore = defineStore('farm', () => {
       return result
     }
     catch (cause: any) {
-      fertilizeError.value = userFacingFertilizeError(cause?.response?.data?.error || cause?.message)
+      fertilizeError.value = userFacingFertilizeError(cause)
       return false
     }
     finally {
@@ -343,9 +345,15 @@ export const useFarmStore = defineStore('farm', () => {
     const res = await api.post('/api/farm/operate', { opType, landId }, {
       headers: { 'x-account-id': accountId },
     })
+    if (!res.data?.ok) {
+      throw new Error(getApiErrorMessage(res.data, '农场操作失败'))
+    }
     landOverlay = null
     await fetchLands(accountId)
-    return res.data?.data || { hadWork: false, actions: [] }
+    const result = res.data?.data || { hadWork: false, actions: [] }
+    if (result && typeof result.message === 'string')
+      result.message = normalizeApiErrorMessage(result.message)
+    return result
   }
 
   return {

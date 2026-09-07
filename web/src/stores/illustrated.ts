@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 
 export const useIllustratedStore = defineStore('illustrated', () => {
   const data = ref<any>(null)
@@ -22,7 +22,7 @@ export const useIllustratedStore = defineStore('illustrated', () => {
       if (id !== requestId)
         return false
       if (!response.data?.ok) {
-        error.value = String(response.data?.error || '无法读取图鉴数据')
+        error.value = getApiErrorMessage(response.data, '无法读取图鉴数据')
         return false
       }
       data.value = response.data.data || null
@@ -31,7 +31,7 @@ export const useIllustratedStore = defineStore('illustrated', () => {
     catch (cause: any) {
       if (id !== requestId)
         return false
-      error.value = String(cause?.response?.data?.error || cause?.message || '无法读取图鉴数据')
+      error.value = getApiErrorMessage(cause, '无法读取图鉴数据')
       return false
     }
     finally {

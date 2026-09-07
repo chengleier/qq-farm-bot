@@ -1,7 +1,7 @@
 import type { CareerHarvestSteal } from '@/components/CareerHarvestSteal.vue'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage, normalizeApiErrorMessage } from '@/api'
 
 export interface BlacklistItem {
   gid: number
@@ -348,11 +348,11 @@ export const useFriendStore = defineStore('friend', () => {
         interactRecords.value = Array.isArray(res.data.data) ? res.data.data : []
       }
       else {
-        interactError.value = res.data.error || '加载访客记录失败'
+        interactError.value = getApiErrorMessage(res.data, '加载访客记录失败')
       }
     }
     catch (error: any) {
-      interactError.value = error?.response?.data?.error || error?.message || '加载访客记录失败'
+      interactError.value = getApiErrorMessage(error, '加载访客记录失败')
     }
     finally {
       interactLoading.value = false
@@ -394,7 +394,7 @@ export const useFriendStore = defineStore('friend', () => {
         skipErrorToast: true,
       } as any)
       if (!res.data?.ok)
-        return { ok: false, message: res.data?.error || '删除好友失败' }
+        return { ok: false, message: getApiErrorMessage(res.data, '删除好友失败') }
 
       const key = String(gid)
       friends.value = friends.value.filter(item => Number(item.gid) !== gid)
@@ -439,7 +439,7 @@ export const useFriendStore = defineStore('friend', () => {
       return { ok: true, message: res.data?.message || '删除好友成功' }
     }
     catch (e: any) {
-      return { ok: false, message: e?.response?.data?.error || e?.message || '删除好友失败' }
+      return { ok: false, message: getApiErrorMessage(e, '删除好友失败') }
     }
   }
 
@@ -468,7 +468,7 @@ export const useFriendStore = defineStore('friend', () => {
       }
       friendLands.value[key] = []
       friendCareer.value = { ...friendCareer.value, [key]: null }
-      friendLandsError.value[key] = String(res.data?.error || '无法读取好友土地')
+      friendLandsError.value[key] = getApiErrorMessage(res.data, '无法读取好友土地')
       return false
     }
     catch (error: any) {
@@ -476,10 +476,7 @@ export const useFriendStore = defineStore('friend', () => {
         return false
       friendLands.value[key] = []
       friendCareer.value = { ...friendCareer.value, [key]: null }
-      const rawMessage = String(error?.response?.data?.error || error?.message || '')
-      friendLandsError.value[key] = /gamepb\.|code=\d+|GatewayError/.test(rawMessage)
-        ? '无法进入该好友农场，好友状态可能已变化，请刷新后重试'
-        : (rawMessage || '无法读取好友土地，请稍后重试')
+      friendLandsError.value[key] = getApiErrorMessage(error, '无法读取好友土地，请稍后重试')
       return false
     }
     finally {
@@ -507,7 +504,15 @@ export const useFriendStore = defineStore('friend', () => {
       const res = await api.post(`/api/friend/${friendId}/op`, { opType }, {
         headers: { 'x-account-id': accountId },
       })
+      if (!res.data?.ok) {
+        return {
+          ok: false,
+          message: getApiErrorMessage(res.data, '操作失败'),
+        }
+      }
       const result = res.data?.data || res.data || {}
+      if (result && typeof result.message === 'string')
+        result.message = normalizeApiErrorMessage(result.message)
       await fetchFriends(accountId)
       if (friendLands.value[friendId]) {
         await fetchFriendLands(accountId, friendId)
@@ -515,7 +520,7 @@ export const useFriendStore = defineStore('friend', () => {
       return result
     }
     catch (e: any) {
-      return { ok: false, message: e?.response?.data?.error || e?.message || '操作失败' }
+      return { ok: false, message: getApiErrorMessage(e, '操作失败') }
     }
   }
 
@@ -558,7 +563,7 @@ export const useFriendStore = defineStore('friend', () => {
         return false
       if (!res.data?.ok) {
         interactionItems.value = []
-        interactionItemsError.value = String(res.data?.error || '无法读取特殊互动道具')
+        interactionItemsError.value = getApiErrorMessage(res.data, '无法读取特殊互动道具')
         return false
       }
       interactionItems.value = Array.isArray(res.data?.data?.items) ? res.data.data.items : []
@@ -568,7 +573,7 @@ export const useFriendStore = defineStore('friend', () => {
       if (sequence !== interactionItemsRequestSequence)
         return false
       interactionItems.value = []
-      interactionItemsError.value = String(error?.response?.data?.error || error?.message || '无法读取特殊互动道具')
+      interactionItemsError.value = getApiErrorMessage(error, '无法读取特殊互动道具')
       return false
     }
     finally {
@@ -593,18 +598,24 @@ export const useFriendStore = defineStore('friend', () => {
         skipErrorToast: true,
       } as any)
       if (!res.data?.ok) {
-        interactionUseError.value = String(res.data?.error || '特殊互动道具使用失败')
+        interactionUseError.value = getApiErrorMessage(res.data, '特殊互动道具使用失败')
         return false
       }
       const result = res.data.data as FriendInteractionBatchDto
       if (Array.isArray(result?.items))
         interactionItems.value = result.items
+      if (result && typeof result.message === 'string')
+        result.message = normalizeApiErrorMessage(result.message)
+      for (const item of result?.results || []) {
+        if (item && typeof item.message === 'string')
+          item.message = normalizeApiErrorMessage(item.message)
+      }
       recordInteractionUsage(accountId, result)
       mergeFriendLandUpdates(result?.hostGid || friendId, result?.updatedLands || [], result?.interactionEffects || [])
       return result
     }
     catch (error: any) {
-      interactionUseError.value = String(error?.response?.data?.error || error?.message || '特殊互动道具使用失败')
+      interactionUseError.value = getApiErrorMessage(error, '特殊互动道具使用失败')
       return false
     }
     finally {
@@ -625,16 +636,22 @@ export const useFriendStore = defineStore('friend', () => {
         skipErrorToast: true,
       } as any)
       if (!res.data?.ok) {
-        interactionUseError.value = String(res.data?.error || '好友农场道具使用失败')
+        interactionUseError.value = getApiErrorMessage(res.data, '好友农场道具使用失败')
         return false
       }
       const result = res.data.data as FriendInteractionBatchDto
+      if (result && typeof result.message === 'string')
+        result.message = normalizeApiErrorMessage(result.message)
+      for (const item of result?.results || []) {
+        if (item && typeof item.message === 'string')
+          item.message = normalizeApiErrorMessage(item.message)
+      }
       if (Array.isArray(result?.items))
         interactionItems.value = result.items
       return result
     }
     catch (error: any) {
-      interactionUseError.value = String(error?.response?.data?.error || error?.message || '好友农场道具使用失败')
+      interactionUseError.value = getApiErrorMessage(error, '好友农场道具使用失败')
       return false
     }
     finally {

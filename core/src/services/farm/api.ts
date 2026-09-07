@@ -114,7 +114,7 @@ async function fertilizeOne(landId: number, fertilizerId: number = NORMAL_FERTIL
  * 施肥 - 必须逐块进行，服务器不支持批量
  * 游戏中拖动施肥间隔很短，这里用 50ms
  */
-async function fertilize(landIds: number[], fertilizerId: number = NORMAL_FERTILIZER_ID): Promise<number> {
+async function fertilize(landIds: number[], fertilizerId: number = NORMAL_FERTILIZER_ID, propagateErrors: boolean = false): Promise<number> {
     let successCount: number = 0;
     for (const landId of landIds) {
         try {
@@ -124,8 +124,9 @@ async function fertilize(landIds: number[], fertilizerId: number = NORMAL_FERTIL
             })).finish();
             await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
             successCount++;
-        } catch {
+        } catch (error) {
             // 施肥失败（可能肥料不足），停止继续
+            if (propagateErrors) throw error;
             break;
         }
         if (landIds.length > 1) await sleep(50);  // 50ms 间隔
@@ -137,7 +138,7 @@ async function fertilize(landIds: number[], fertilizerId: number = NORMAL_FERTIL
  * 有机肥循环施肥:
  * 按地块顺序循环施肥，失败或达到单次操作上限时停止。
  */
-async function fertilizeOrganicLoop(landIds: number[] | any[]): Promise<number> {
+async function fertilizeOrganicLoop(landIds: number[] | any[], propagateErrors: boolean = false): Promise<number> {
     const ids: number[] = (Array.isArray(landIds) ? landIds : []).filter(Boolean);
     if (ids.length === 0) return 0;
 
@@ -157,8 +158,9 @@ async function fertilizeOrganicLoop(landIds: number[] | any[]): Promise<number> 
             })).finish();
             await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
             successCount++;
-        } catch {
+        } catch (error) {
             // 常见是有机肥耗尽，按需求直接停止
+            if (propagateErrors) throw error;
             break;
         }
 

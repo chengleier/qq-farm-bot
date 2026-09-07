@@ -11,7 +11,7 @@ import { NTab, NTabs } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import LandCard from '@/components/LandCard.vue'
@@ -171,7 +171,7 @@ async function onConfirm() {
       await pendingAction.value()
     }
     catch (e: any) {
-      toast.error(e?.message || '操作失败')
+      toast.error(getApiErrorMessage(e, '操作失败'))
     }
     finally {
       confirmLoading.value = false

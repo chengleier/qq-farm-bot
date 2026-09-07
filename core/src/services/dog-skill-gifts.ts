@@ -46,7 +46,7 @@ function getFarmingSkillGiftCount(reply: any): number {
     }, 0);
 }
 
-async function checkAndClaimDogSkillGifts(pendingCountHint?: any): Promise<any> {
+async function checkAndClaimDogSkillGifts(pendingCountHint?: any, propagateErrors: boolean = false): Promise<any> {
     if (pendingClaim) return pendingClaim;
 
     const request: Promise<any> = (async () => {
@@ -83,6 +83,7 @@ async function checkAndClaimDogSkillGifts(pendingCountHint?: any): Promise<any> 
                 event: '领取同气连枝礼包',
                 result: 'error',
             });
+            if (propagateErrors) throw error;
             return {
                 claimed: 0,
                 pending: Math.max(0, toNum(pendingCountHint)),

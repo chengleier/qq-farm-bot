@@ -12,6 +12,8 @@ const store = require('../../models/store');
 const {
     getAccId,
     handleApiError,
+    isGatewayProtocolError,
+    isSoftRuntimeError,
     buildKnownFriendGidSettings,
 } = require('./middleware');
 
@@ -134,6 +136,14 @@ function mountFriendRoutes(app: Application, ctx: AdminContext): void {
         try {
             const opType = String((req.body || {}).opType || '');
             const data = await ctx.provider.doFriendOp(id, req.params.gid, opType);
+            if (data && data.ok === false) {
+                return res.json({
+                    ok: false,
+                    error: data.errorMessage || data.message || data.error || '好友操作失败',
+                    ...(data.errorMessage ? { errorMessage: data.errorMessage } : {}),
+                    ...(data.errorCode ? { errorCode: data.errorCode } : {}),
+                });
+            }
             res.json({ ok: true, data });
         } catch (e: any) {
             handleApiError(res, e);
@@ -183,8 +193,9 @@ function mountFriendRoutes(app: Application, ctx: AdminContext): void {
             if (ctx.provider && typeof ctx.provider.getFriends === 'function') {
                 friendsList = await ctx.provider.getFriends(id) || [];
             }
-        } catch {
-            // 忽略获取好友列表失败
+        } catch (error: any) {
+            if (isGatewayProtocolError(error) || isSoftRuntimeError(error)) return handleApiError(res, error);
+            // 非协议错误不影响黑名单本地数据展示
         }
 
         // 构建好友信息映射
@@ -238,8 +249,9 @@ function mountFriendRoutes(app: Application, ctx: AdminContext): void {
             if (ctx.provider && typeof ctx.provider.getFriends === 'function') {
                 friendsList = await ctx.provider.getFriends(id) || [];
             }
-        } catch {
-            // 忽略获取好友列表失败
+        } catch (error: any) {
+            if (isGatewayProtocolError(error) || isSoftRuntimeError(error)) return handleApiError(res, error);
+            // 非协议错误不影响黑名单本地数据展示
         }
 
         // 构建好友信息映射

@@ -74,6 +74,7 @@ function getPlantSizeBySeedId(seedId: number | string): number {
 async function plantSeeds(seedId: number | string, landIds: number[], options: {
     maxPlantCount?: number;
     layouts?: PlantingLayout[];
+    propagateErrors?: boolean;
 } = {}): Promise<PlantSeedsResult> {
     const normalizedLandIds = (Array.isArray(landIds) ? landIds : []).map((id: any) => toNum(id)).filter(Boolean);
     const maxPlantCount: number = Math.max(0, toNum(options.maxPlantCount) || 0) || Number.POSITIVE_INFINITY;
@@ -126,6 +127,7 @@ async function plantSeeds(seedId: number | string, landIds: number[], options: {
                     logWarn('种植', `土地#${landId} 种植成功但补拉占地失败 ${e.message}`, {
                         module: 'farm', event: '种植种子', result: 'footprint_uncertain', seedId: toNum(seedId), landId
                     });
+                    if (options.propagateErrors) throw e;
                 }
             }
 
@@ -149,6 +151,7 @@ async function plantSeeds(seedId: number | string, landIds: number[], options: {
             logWarn('种植', `土地#${landId} 失败: ${e.message}`, {
                 module: 'farm', event: '种植种子', result: 'rpc_uncertain', seedId: toNum(seedId), landId
             });
+            if (options.propagateErrors) throw e;
             break;
         }
         if (!rpcSucceeded) break;
@@ -223,7 +226,7 @@ function resolveSeedLandTypes(bagSeedLandTypes: any, seedId: any): string[] | nu
     return types;
 }
 
-async function plantFromBagSeeds(landsToPlant: any[], landTypeById?: Map<number, string>): Promise<{
+async function plantFromBagSeeds(landsToPlant: any[], landTypeById?: Map<number, string>, options: { propagateErrors?: boolean } = {}): Promise<{
     remainingLandIds: number[];
     fallbackAllowed: boolean;
     plantedLandIds: number[];
@@ -354,6 +357,7 @@ async function plantFromBagSeeds(landsToPlant: any[], landTypeById?: Map<number,
         const result = await plantSeeds(seed.seedId, layouts.map(layout => layout.anchorLandId), {
             maxPlantCount: layouts.length,
             layouts,
+            propagateErrors: options.propagateErrors,
         });
         const consumed = new Set<number>([
             ...(Array.isArray(result.reservedLandIds) ? result.reservedLandIds : []),
@@ -495,7 +499,7 @@ async function findBestSeed(overrideStrategy?: string): Promise<any[]> {
     return available;
 }
 
-async function getAvailableSeeds(): Promise<any[]> {
+async function getAvailableSeeds(propagateErrors: boolean = false): Promise<any[]> {
     const SEED_SHOP_ID: number = 2;
     const { getShopInfo } = require('./api');
     const state = getUserState();
@@ -531,6 +535,7 @@ async function getAvailableSeeds(): Promise<any[]> {
         if (!wsErr || Number(wsErr.code) !== 400) {
             logWarn('商店', `获取商店失败: ${e.message}，使用本地备选列表`);
         }
+        if (propagateErrors) throw e;
     }
 
     // 如果商店请求失败或为空，使用本地配置
@@ -553,7 +558,7 @@ async function getAvailableSeeds(): Promise<any[]> {
     });
 }
 
-async function getLandsDetail(): Promise<{ lands: any[]; summary: any; socialEvents: any[]; career: any }> {
+async function getLandsDetail(propagateErrors: boolean = false): Promise<{ lands: any[]; summary: any; socialEvents: any[]; career: any }> {
     let lands: any[] = [];
     let summary: any = {};
     let socialEvents: any[] = [];
@@ -570,7 +575,8 @@ async function getLandsDetail(): Promise<{ lands: any[]; summary: any; socialEve
             }));
             summary = summarizeLandDetails(lands);
         }
-    } catch {
+    } catch (e) {
+        if (propagateErrors) throw e;
         lands = [];
         summary = {};
         socialEvents = [];
@@ -580,7 +586,7 @@ async function getLandsDetail(): Promise<{ lands: any[]; summary: any; socialEve
         lands,
         summary,
         socialEvents,
-        career: await getCareerInfoOrNull(getUserState().gid),
+        career: await getCareerInfoOrNull(getUserState().gid, propagateErrors),
     };
 }
 
@@ -618,7 +624,7 @@ async function resolveLandTypeMapForBagSeeds(knownLands: any[]): Promise<Map<num
     return landTypeById;
 }
 
-async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]): Promise<any> {
+async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[], options: { propagateErrors?: boolean } = {}): Promise<any> {
     let landsToPlant: number[] = [...new Set<number>((Array.isArray(emptyLandIds) ? emptyLandIds : [])
         .map((id: any) => toNum(id)).filter((id: number) => id > 0))];
     let latestLands: any[] = [];
@@ -639,11 +645,13 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
                 logWarn('铲除', `铲除后确认土地失败，保留原有空地且不使用枯死地块: ${e.message}`, {
                     module: 'farm', event: '铲除植物', result: 'confirm_error'
                 });
+                if (options.propagateErrors) throw e;
             }
         } catch (e: any) {
             logWarn('铲除', `批量铲除失败: ${e.message}`, {
                 module: 'farm', event: '铲除植物', result: 'error'
             });
+            if (options.propagateErrors) throw e;
         }
     }
 
@@ -656,13 +664,14 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
         let bagResult: any;
         try {
             const landTypeById = await resolveLandTypeMapForBagSeeds(latestLands);
-            bagResult = await plantFromBagSeeds(landsToPlant, landTypeById);
+            bagResult = await plantFromBagSeeds(landsToPlant, landTypeById, options);
         } catch (e: any) {
             logWarn('种植', `读取背包种子失败，本轮跳过第二优先策略以避免误购: ${e.message}`, {
                 module: 'farm',
                 event: '种植种子',
                 result: 'bag_load_error',
             });
+            if (options.propagateErrors) throw e;
             return { plantedLands: [] };
         }
 
@@ -678,31 +687,32 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
                 strategy: fallbackStrategy,
                 remainingCount: bagResult.remainingLandIds.length,
             });
-            const shopResult = await plantFromShop(bagResult.remainingLandIds, state, fallbackStrategy);
+            const shopResult = await plantFromShop(bagResult.remainingLandIds, state, fallbackStrategy, options);
             plantedLands.push(...(shopResult.plantedLands || []));
         }
 
         // 施肥
         if (plantedLands.length > 0) {
-            await runFertilizerByConfig(plantedLands);
+            await runFertilizerByConfig(plantedLands, options);
         }
         return { plantedLands: [...new Set(plantedLands)] };
     }
 
     // 其他策略：从商店购买种植
-    const shopResult = await plantFromShop(landsToPlant, state);
+    const shopResult = await plantFromShop(landsToPlant, state, undefined, options);
     if (shopResult.plantedLands && shopResult.plantedLands.length > 0) {
-        await runFertilizerByConfig(shopResult.plantedLands);
+        await runFertilizerByConfig(shopResult.plantedLands, options);
     }
     return shopResult;
 }
 
-async function plantFromShop(landsToPlant: number[], state: any, overrideStrategy?: string): Promise<any> {
+async function plantFromShop(landsToPlant: number[], state: any, overrideStrategy?: string, options: { propagateErrors?: boolean } = {}): Promise<any> {
     let candidates: any[] = [];
     try {
         candidates = await findBestSeed(overrideStrategy);
     } catch (e: any) {
         logWarn('商店', `查询失败: ${e.message}`);
+        if (options.propagateErrors) throw e;
         return { plantedLands: [], remainingLandIds: [...landsToPlant], uncertain: true };
     }
     if (candidates.length === 0) return { plantedLands: [], remainingLandIds: [...landsToPlant], uncertain: false };
@@ -783,6 +793,7 @@ async function plantFromShop(landsToPlant: number[], state: any, overrideStrateg
             logWarn('购买', `${seedName} 购买结果不确定，停止后续购买: ${e.message}`, {
                 module: 'warehouse', event: '购买种子', result: 'purchase_uncertain', seedId: candidate.seedId
             });
+            if (options.propagateErrors) throw e;
             uncertain = true;
             break;
         }
@@ -790,6 +801,7 @@ async function plantFromShop(landsToPlant: number[], state: any, overrideStrateg
         const result = await plantSeeds(actualSeedId, layouts.map(layout => layout.anchorLandId), {
             maxPlantCount: needCount,
             layouts,
+            propagateErrors: options.propagateErrors,
         });
         plantedLands.push(...result.plantedLandIds);
         const consumed = new Set<number>([
@@ -814,7 +826,7 @@ async function plantFromShop(landsToPlant: number[], state: any, overrideStrateg
     return { plantedLands: [...new Set(plantedLands)], remainingLandIds, uncertain };
 }
 
-async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNormal?: boolean; reason?: string } = {}): Promise<{ normal: number; organic: number }> {
+async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNormal?: boolean; reason?: string; propagateErrors?: boolean } = {}): Promise<{ normal: number; organic: number }> {
     const { fertilize, fertilizeOrganicLoop } = require('./api');
     const automation = getAutomation() || {};
     const fertilizerConfig = automation.fertilizer || 'none';
@@ -859,6 +871,7 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
             result: 'error',
             reason,
         });
+        if (options.propagateErrors) throw e;
     }
 
     const isAllLandTypesSelected: boolean = selectedLandTypes.length === ALL_FERTILIZER_LAND_TYPES.length;
@@ -882,7 +895,7 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
     let fertilizedOrganic: number = 0;
 
     if (!skipNormal && (fertilizerConfig === 'normal' || fertilizerConfig === 'both' || fertilizerConfig === 'smart') && normalTargets.length > 0) {
-        fertilizedNormal = await fertilize(normalTargets, NORMAL_FERTILIZER_ID);
+        fertilizedNormal = await fertilize(normalTargets, NORMAL_FERTILIZER_ID, options.propagateErrors);
         if (fertilizedNormal > 0) {
             log('施肥', `${reasonLabel}：已为${fertilizedNormal}/${normalTargets.length} 块地施普通化肥（范围: ${selectedLandTypeNames.join('、')}）`, {
             module: 'farm',
@@ -907,7 +920,7 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
             organicTargets = filterLandIdsByTypes(organicTargets, landTypeById, selectedLandTypes);
             }
 
-        fertilizedOrganic = await fertilizeOrganicLoop(organicTargets);
+        fertilizedOrganic = await fertilizeOrganicLoop(organicTargets, options.propagateErrors);
         if (fertilizedOrganic > 0) {
             log('施肥', `${reasonLabel}：有机化肥循环施肥完成，共施 ${fertilizedOrganic} 次（范围: ${selectedLandTypeNames.join('、')}）`, {
                 module: 'farm',
@@ -929,10 +942,11 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
             organicTargets = getFastMatureLands(latest && latest.lands, smartSeconds);
         } catch (e: any) {
             logWarn('施肥', `获取全农场地块失败 ${e.message}`);
+            if (options.propagateErrors) throw e;
         }
 
         if (organicTargets.length > 0) {
-            fertilizedOrganic = await fertilizeOrganicLoop(organicTargets);
+            fertilizedOrganic = await fertilizeOrganicLoop(organicTargets, options.propagateErrors);
             if (fertilizedOrganic > 0) {
                 log('施肥', `有机化肥循环施肥完成，共施${fertilizedOrganic} 次`, {
                     module: 'farm',
@@ -967,9 +981,13 @@ async function fertilizeOwnLand(landIdInput: unknown, fertilizerTypeInput: unkno
         reply = await fertilizeOne(landId, fertilizerId);
     }
     catch (error: any) {
-        const message = String(error?.errorMessage || '').trim()
-            || String(error?.message || '').replace(/^[\s\S]*错误:\s*code=\d+\s+/, '').trim()
-            || `${typeName}使用失败`;
+        if (error?.name === 'GatewayError'
+            || typeof error?.errorMessage === 'string'
+            || typeof error?.error_message === 'string'
+            || /^(?:[\w-]+\.)+[\w-]+(?:\s+.*?)?\bcode=\d+(?:\s|$)/.test(String(error?.message || '').trim())) {
+            throw error;
+        }
+        const message = String(error?.message || '').trim() || `${typeName}使用失败`;
         throw new Error(message);
     }
     const replyLands = Array.isArray(reply && reply.land) ? reply.land : [];

@@ -1,6 +1,6 @@
 export {};
 const { getFruitName, getPlantByFruitId, getPlantById, getPlantName } = require('../config/gameConfig');
-const { sendMsgAsync } = require('../utils/network');
+const { sendMsgAsync, GatewayError } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { logWarn, toNum, toTimeSec } = require('../utils/utils');
 
@@ -53,6 +53,7 @@ async function fetchInteractReply(priority: 'low' | 'normal' = 'normal'): Promis
 
     const body: Uint8Array = types.InteractRecordsRequest.encode(types.InteractRecordsRequest.create({})).finish();
     const errors: string[] = [];
+    let lastGatewayError: any = null;
 
     const candidates = preferredRpcCandidate
         ? [preferredRpcCandidate, ...RPC_CANDIDATES.filter(candidate => candidate !== preferredRpcCandidate)]
@@ -66,6 +67,9 @@ async function fetchInteractReply(priority: 'low' | 'normal' = 'normal'): Promis
         } catch (error: any) {
             const message: string = error && error.message ? error.message : String(error || 'unknown');
             errors.push(`${serviceName}.${methodName}: ${message}`);
+            if (error instanceof GatewayError || error?.name === 'GatewayError' || typeof error?.errorMessage === 'string') {
+                lastGatewayError = error;
+            }
             // 只有服务端明确拒绝当前 RPC 名称时才探测下一个候选；超时/断线不再连续制造请求。
             if (!error || error.name !== 'GatewayError') throw error;
         }
@@ -76,6 +80,7 @@ async function fetchInteractReply(priority: 'low' | 'normal' = 'normal'): Promis
         event: 'interact_records',
         result: 'error',
     });
+    if (lastGatewayError) throw lastGatewayError;
     throw new Error('访客记录接口调用失败，请确认服务名和方法名是否与当前版本一致');
 }
 

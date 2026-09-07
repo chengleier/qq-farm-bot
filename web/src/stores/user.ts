@@ -1,7 +1,7 @@
 import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 
 export interface AdminInfo {
   username: string
@@ -46,8 +46,8 @@ export const useUserStore = defineStore('user', () => {
     catch (error: any) {
       const data = error.response?.data
       return data
-        ? { ok: false, error: data.error, errorType: data.errorType, remainingMs: data.remainingMs }
-        : { ok: false, error: error.message || '网络错误' }
+        ? { ok: false, error: getApiErrorMessage(data, '网络错误'), errorType: data.errorType, remainingMs: data.remainingMs }
+        : { ok: false, error: getApiErrorMessage(error, '网络错误') }
     }
   }
 

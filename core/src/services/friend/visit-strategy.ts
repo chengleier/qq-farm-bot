@@ -440,7 +440,7 @@ export function cacheFriendsListFromReply(reply: any): any[] {
     return result;
 }
 
-export async function getFriendsList(forceSync: boolean = false, priority: 'low' | 'normal' = 'normal'): Promise<any[]> {
+export async function getFriendsList(forceSync: boolean = false, priority: 'low' | 'normal' = 'normal', propagateErrors: boolean = false): Promise<any[]> {
     try {
         // 检查缓存
         const now: number = Date.now();
@@ -469,6 +469,7 @@ export async function getFriendsList(forceSync: boolean = false, priority: 'low'
             result: 'error',
             error: e.message,
         });
+        if (propagateErrors) throw e;
         return [];
     }
 }
@@ -481,7 +482,7 @@ export function getFriendsListCacheOnly(): any[] {
 /**
  * 获取指定好友的农田详情 (进入-获取-离开)
  */
-export async function getFriendLandsDetail(friendGid: number): Promise<any> {
+export async function getFriendLandsDetail(friendGid: number, propagateErrors: boolean = false): Promise<any> {
     let entered = false;
     try {
         const enterReply: any = await enterFriendFarm(friendGid);
@@ -502,7 +503,7 @@ export async function getFriendLandsDetail(friendGid: number): Promise<any> {
         return {
             lands: landsList,
             summary: analyzed,
-            career: await getCareerInfoOrNull(friendGid),
+            career: await getCareerInfoOrNull(friendGid, propagateErrors),
         };
     } finally {
         if (entered) await leaveFriendFarm(friendGid);
@@ -511,19 +512,28 @@ export async function getFriendLandsDetail(friendGid: number): Promise<any> {
 
 // ============ 批量操作与面板操作 ============
 
-export async function runBatchWithFallback(ids: number[], batchFn: (ids: number[]) => Promise<any>, singleFn: (ids: number[]) => Promise<any>): Promise<number> {
+export async function runBatchWithFallback(
+    ids: number[],
+    batchFn: (ids: number[]) => Promise<any>,
+    singleFn: (ids: number[]) => Promise<any>,
+    propagateErrors: boolean = false,
+): Promise<number> {
     const target: number[] = Array.isArray(ids) ? ids.filter(Boolean) : [];
     if (target.length === 0) return 0;
     try {
         await batchFn(target);
         return target.length;
-    } catch {
+    } catch (error) {
+        if (propagateErrors) throw error;
         let ok: number = 0;
         for (const landId of target) {
             try {
                 await singleFn([landId]);
                 ok++;
-            } catch { /* ignore */ }
+            } catch (error) {
+                if (propagateErrors) throw error;
+                /* ignore */
+            }
             await sleep(100);
         }
         return ok;
@@ -548,7 +558,13 @@ function mergeFarmingOutcomes(outcomes: FarmingOutcome[]): FarmingOutcome {
     };
 }
 
-async function runFarmingWithFallback(hostGid: number, ids: number[], stopWhenExpLimit: boolean = false, snapshotKey: string = ''): Promise<FarmingOutcome> {
+async function runFarmingWithFallback(
+    hostGid: number,
+    ids: number[],
+    stopWhenExpLimit: boolean = false,
+    snapshotKey: string = '',
+    propagateErrors: boolean = false,
+): Promise<FarmingOutcome> {
     const target: number[] = filterRecentHelp(hostGid, Array.isArray(ids) ? ids : [], snapshotKey);
     if (target.length === 0) return emptyFarmingOutcome();
     markRecentHelp(hostGid, target, 'in_flight', HELP_IN_FLIGHT_TTL_MS, snapshotKey);
@@ -564,7 +580,8 @@ async function runFarmingWithFallback(hostGid: number, ids: number[], stopWhenEx
         const unconfirmed = target.filter((landId: number) => !batch.landIds.includes(landId));
         releaseRecentHelp(hostGid, unconfirmed);
         return batch;
-    } catch {
+    } catch (error) {
+        if (propagateErrors) throw error;
         releaseRecentHelp(hostGid, target);
         const outcomes: FarmingOutcome[] = [];
         for (const landId of target) {
@@ -575,7 +592,8 @@ async function runFarmingWithFallback(hostGid: number, ids: number[], stopWhenEx
                 if (outcome.effect === 'noop') markRecentHelp(hostGid, [landId], 'noop', HELP_RESULT_TTL_MS, snapshotKey);
                 else if (outcome.effect === 'confirmed') markRecentHelp(hostGid, outcome.landIds, 'confirmed', HELP_RESULT_TTL_MS, snapshotKey);
                 else releaseRecentHelp(hostGid, [landId]);
-            } catch {
+            } catch (error) {
+                if (propagateErrors) throw error;
                 releaseRecentHelp(hostGid, [landId]);
             }
             await sleep(100);
@@ -588,7 +606,7 @@ async function runFarmingWithFallback(hostGid: number, ids: number[], stopWhenEx
  * 面板手动好友操作（单个好友）
  * opType: 'steal' | 'water' | 'weed' | 'bug' | 'bad'
  */
-export async function doFriendOperation(friendGid: any, opType: string): Promise<any> {
+export async function doFriendOperation(friendGid: any, opType: string, propagateErrors: boolean = false): Promise<any> {
     const gid: number = toNum(friendGid);
     if (!gid) return { ok: false, message: '无效好友ID', opType };
     if (opType === 'bad' && schedulerRef().isBadOperationLimitReached()) {
@@ -613,6 +631,7 @@ export async function doFriendOperation(friendGid: any, opType: string): Promise
         if (handled.handled && handled.kind === 'invalid_removed') {
             return { ok: true, opType, count: 0, message: '好友 GID 已失效，已自动移出已知列表' };
         }
+        if (propagateErrors) throw e;
         return { ok: false, message: `进入好友农场失败: ${e.message}`, opType };
     }
 
@@ -626,7 +645,7 @@ export async function doFriendOperation(friendGid: any, opType: string): Promise
         if (opType === 'steal') {
             if (!status.stealable.length) return { ok: true, opType, count: 0, message: '没有可偷取土地' };
             const target: number[] = status.stealable;
-            count = await runBatchWithFallback(target, (ids: number[]) => stealHarvest(gid, ids), (ids: number[]) => stealHarvest(gid, ids));
+            count = await runBatchWithFallback(target, (ids: number[]) => stealHarvest(gid, ids), (ids: number[]) => stealHarvest(gid, ids), propagateErrors);
             if (count > 0) {
                 recordOperation('steal', count);
                 // 手动偷取成功后立即尝试出售一次果实
@@ -651,7 +670,7 @@ export async function doFriendOperation(friendGid: any, opType: string): Promise
                 : opType === 'weed' ? status.needWeed
                 : status.needBug;
             if (!landIds.length) return { ok: true, opType, count: 0, message: '没有需要照顾的土地' };
-            const outcome: FarmingOutcome = await runFarmingWithFallback(gid, landIds, false, getHelpSnapshotKey(lands));
+            const outcome: FarmingOutcome = await runFarmingWithFallback(gid, landIds, false, getHelpSnapshotKey(lands), propagateErrors);
             count = outcome.landCount;
             if (outcome.operationCount > 0) recordOperation('helpFarming', outcome.operationCount);
             return {
@@ -675,13 +694,13 @@ export async function doFriendOperation(friendGid: any, opType: string): Promise
             // 手动捣乱不依赖预检查，逐块执行（与 terminal-farm-main 保持一致）
             let failDetails: string[] = [];
             if (status.canPutWeed.length) {
-                const weedRet: { ok: number; failed: any[]; limitReached?: boolean } = await putWeedsDetailed(gid, status.canPutWeed);
+                const weedRet: { ok: number; failed: any[]; limitReached?: boolean } = await putWeedsDetailed(gid, status.canPutWeed, propagateErrors);
                 weedCount = weedRet.ok;
                 failDetails = failDetails.concat((weedRet.failed || []).map((f: any) => `放草#${f.landId}:${f.reason}`));
                 if (weedCount > 0) recordOperation('weed', weedCount);
             }
             if (!schedulerRef().isBadOperationLimitReached() && status.canPutBug.length) {
-                const bugRet: { ok: number; failed: any[]; limitReached?: boolean } = await putInsectsDetailed(gid, status.canPutBug);
+                const bugRet: { ok: number; failed: any[]; limitReached?: boolean } = await putInsectsDetailed(gid, status.canPutBug, propagateErrors);
                 bugCount = bugRet.ok;
                 failDetails = failDetails.concat((bugRet.failed || []).map((f: any) => `放虫#${f.landId}:${f.reason}`));
                 if (bugCount > 0) recordOperation('bug', bugCount);
@@ -713,6 +732,7 @@ export async function doFriendOperation(friendGid: any, opType: string): Promise
 
         return { ok: false, opType, count: 0, message: '未知操作类型' };
     } catch (e: any) {
+        if (propagateErrors) throw e;
         return { ok: false, opType, count: 0, message: e.message || '操作失败' };
     } finally {
         try { await leaveFriendFarm(gid); } catch { /* ignore */ }

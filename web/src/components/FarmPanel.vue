@@ -6,6 +6,7 @@ import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { getApiErrorMessage } from '@/api'
 import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import LandCard from '@/components/LandCard.vue'
@@ -310,7 +311,7 @@ async function handleFarmLand(land: any) {
       toast.info(`第 ${landId} 块土地当前无需务农`)
   }
   catch (cause: any) {
-    toast.error(String(cause?.response?.data?.error || cause?.message || '单点务农失败'))
+    toast.error(getApiErrorMessage(cause, '单点务农失败'))
   }
   finally {
     if (farmingLandId.value === landId)

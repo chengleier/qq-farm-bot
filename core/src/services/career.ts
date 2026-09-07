@@ -34,10 +34,11 @@ async function getCareerInfo(gid: number): Promise<CareerInfo> {
     };
 }
 
-async function getCareerInfoOrNull(gid: number): Promise<CareerInfo | null> {
+async function getCareerInfoOrNull(gid: number, propagateErrors: boolean = false): Promise<CareerInfo | null> {
     try {
         return await getCareerInfo(gid);
     } catch (error: any) {
+        if (propagateErrors) throw error;
         logWarn('生涯', `查询失败: ${error && error.message ? error.message : error}`);
         return null;
     }

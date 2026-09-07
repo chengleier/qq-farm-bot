@@ -1,4 +1,4 @@
-import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, FertilizerLandType, GlobalConfig, IntervalConfig, OfflineReminder, PlantingStrategy, QuietHoursConfig } from '../../types/config';
+import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, FertilizerLandType, GlobalConfig, IntervalConfig, LoginSettings, OfflineReminder, PlantingStrategy, QuietHoursConfig } from '../../types/config';
 export {};
 
 const { DEFAULT_TIME_ZONE, normalizeTimeZone, resolveClientVersion } = require('../../config/config');
@@ -34,6 +34,13 @@ const DEFAULT_OFFLINE_REMINDER: OfflineReminder = {
     title: '账号下线提醒',
     msg: '账号下线',
     offlineDeleteSec: 0,
+};
+
+const DEFAULT_LOGIN_SETTINGS: LoginSettings = {
+    wechatQrLogin: true,
+    qqQrLogin: false,
+    napCatEndpoint: '',
+    napCatSignature: '',
 };
 
 const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
@@ -479,6 +486,7 @@ const globalConfig: GlobalConfig = {
     ui: {
         theme: 'light',
     },
+    loginSettings: { ...DEFAULT_LOGIN_SETTINGS },
     offlineReminder: { ...DEFAULT_OFFLINE_REMINDER },
     systemConfig: null,
 };
@@ -517,6 +525,23 @@ function loadGlobalConfig(): void {
             // offlineReminder normalization done in global-config
             if (data.offlineReminder && typeof data.offlineReminder === 'object') {
                 globalConfig.offlineReminder = data.offlineReminder;
+            }
+
+            if (data.loginSettings && typeof data.loginSettings === 'object') {
+                globalConfig.loginSettings = {
+                    wechatQrLogin: typeof data.loginSettings.wechatQrLogin === 'boolean'
+                        ? data.loginSettings.wechatQrLogin
+                        : DEFAULT_LOGIN_SETTINGS.wechatQrLogin,
+                    qqQrLogin: typeof data.loginSettings.qqQrLogin === 'boolean'
+                        ? data.loginSettings.qqQrLogin
+                        : DEFAULT_LOGIN_SETTINGS.qqQrLogin,
+                    napCatEndpoint: typeof data.loginSettings.napCatEndpoint === 'string'
+                        ? data.loginSettings.napCatEndpoint.trim()
+                        : DEFAULT_LOGIN_SETTINGS.napCatEndpoint,
+                    napCatSignature: typeof data.loginSettings.napCatSignature === 'string'
+                        ? data.loginSettings.napCatSignature.trim()
+                        : DEFAULT_LOGIN_SETTINGS.napCatSignature,
+                };
             }
 
             if (data.systemConfig && typeof data.systemConfig === 'object') {
@@ -575,6 +600,7 @@ module.exports = {
     DEFAULT_KNOWN_FRIEND_GID_SYNC_COOLDOWN_SEC,
     DEFAULT_FRIENDS_LIST_CACHE_TTL_SEC,
     DEFAULT_OFFLINE_REMINDER,
+    DEFAULT_LOGIN_SETTINGS,
     DEFAULT_ACCOUNT_CONFIG,
     ALLOWED_AUTOMATION_KEYS,
     // Mutable shared state (by reference)

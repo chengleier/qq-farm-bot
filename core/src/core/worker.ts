@@ -276,10 +276,6 @@ async function runFarmTick(auto: any): Promise<void> {
         await runWithRequestClass('farm', async () => {
             if (auto.farm) await checkFarm();
             if (auto.task) await checkAndClaimTasks();
-            // Email rewards are part of the normal account routine. The service
-            // itself enforces a five-minute cooldown, so checking here keeps
-            // post-activity settlement mail from waiting for the next login.
-            if (auto.email !== false) await checkAndClaimEmails();
             if (auto.email !== false) await openCharitySettlementGiftPacksSilently();
             if (auto.fertilizer_gift) await openFertilizerGiftPacksSilently();
         });
@@ -554,6 +550,7 @@ onMasterMessage(async (msg: any) => {
             error: {
                 message: String(e?.message || e || 'Worker error'),
                 code: e?.code,
+                errorMessage: e?.errorMessage ?? e?.error_message,
                 name: String(e?.name || 'Error'),
             },
         });
@@ -797,7 +794,7 @@ function onKickout(payload: any): void {
 async function handleApiCall(msg: any): Promise<void> {
     const { id, method, args } = msg;
     let result: any = null;
-    let error: { message: string; code?: string | number; name?: string } | string | null = null;
+    let error: { message: string; code?: string | number; errorMessage?: string; name?: string } | string | null = null;
 
     try {
         if (method === 'applyRuntimeConfigSnapshot') {
@@ -809,13 +806,13 @@ async function handleApiCall(msg: any): Promise<void> {
             }
             switch (method) {
             case 'getLands':
-                result = await getLandsDetail();
+                result = await getLandsDetail(args[0] === true);
                 break;
             case 'getIllustratedSnapshot':
                 result = await require('../services/illustrated').getIllustratedSnapshot();
                 break;
             case 'getFriends':
-                result = await getFriendsList(args[0] === true);
+                result = await getFriendsList(args[0] === true, 'normal', args[1] === true);
                 break;
             case 'getFriendsCache':
                 result = getFriendsListCacheOnly();
@@ -828,31 +825,31 @@ async function handleApiCall(msg: any): Promise<void> {
                 result = await getInteractRecords();
                 break;
             case 'getFriendLands':
-                result = await getFriendLandsDetail(args[0]);
+                result = await getFriendLandsDetail(args[0], args[1] === true);
                 break;
             case 'getFriendInteractionItems':
-                result = await require('../services/friend-interaction-items').getFriendInteractionItems();
+                result = await require('../services/friend-interaction-items').getFriendInteractionItems(args[0] === true);
                 break;
             case 'useFriendInteractionItemBatch':
-                result = await require('../services/friend-interaction-items').useFriendInteractionItemBatch(args[0], args[1], args[2]);
+                result = await require('../services/friend-interaction-items').useFriendInteractionItemBatch(args[0], args[1], args[2], args[3] === true);
                 break;
             case 'useFriendFarmInteractionItem':
-                result = await require('../services/friend-interaction-items').useFriendFarmInteractionItem(args[0], args[1]);
+                result = await require('../services/friend-interaction-items').useFriendFarmInteractionItem(args[0], args[1], args[2] === true);
                 break;
             case 'getSelfInteractionItems':
-                result = await require('../services/friend-interaction-items').getSelfInteractionItems();
+                result = await require('../services/friend-interaction-items').getSelfInteractionItems(args[0] === true);
                 break;
             case 'useSelfInteractionItemBatch':
-                result = await require('../services/friend-interaction-items').useSelfInteractionItemBatch(args[0], args[1]);
+                result = await require('../services/friend-interaction-items').useSelfInteractionItemBatch(args[0], args[1], args[2] === true);
                 break;
             case 'doFriendOp':
-                result = await doFriendOperation(args[0], args[1]);
+                result = await doFriendOperation(args[0], args[1], args[2] === true);
                 break;
             case 'delFriend':
                 result = await deleteFriend(args[0]);
                 break;
             case 'getSeeds':
-                result = await getAvailableSeeds();
+                result = await getAvailableSeeds(args[0] === true);
                 break;
             case 'getBag':
                 result = await require('../services/warehouse').getBagDetail();
@@ -892,7 +889,7 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             }
             case 'claimDogSkillGifts':
-                result = await require('../services/dog-skill-gifts').checkAndClaimDogSkillGifts();
+                result = await require('../services/dog-skill-gifts').checkAndClaimDogSkillGifts(undefined, true);
                 break;
             case 'getPetInfo':
                 result = await require('../services/pets').getPetInfo();
@@ -916,7 +913,7 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             }
             case 'doFarmOp':
-                result = await runFarmOperation(args[0], args[1]); // opType, optional targetLandId
+                result = await runFarmOperation(args[0], args[1], args[2] === true); // opType, optional targetLandId
                 break;
             case 'fertilizeOwnLand':
                 result = await fertilizeOwnLand(args[0], args[1]);
@@ -924,12 +921,12 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'buyFertilizer': {
                 const fertilizerType = args[0] || 'organic';
                 const fertilizerCount = Number(args[1]) || 0;
-                result = await autoBuyFertilizer(true, fertilizerType, fertilizerCount);
+                result = await autoBuyFertilizer(true, fertilizerType, fertilizerCount, args[2] === true);
                 break;
             }
             case 'checkAndBuyFertilizer': {
                 const options = args[0] || {};
-                result = await checkAndBuyFertilizerBoth(options);
+                result = await checkAndBuyFertilizerBoth(options, args[1] === true);
                 break;
             }
             case 'getAnalytics': {
@@ -938,7 +935,7 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             }
             case 'getDailyGiftOverview':
-                result = await getDailyGiftOverview();
+                result = await getDailyGiftOverview(args[0] === true);
                 break;
             case 'getActivityDirectorySnapshot':
                 result = await require('../services/activity-center').getActivityDirectorySnapshot();
@@ -1071,6 +1068,7 @@ async function handleApiCall(msg: any): Promise<void> {
         error = {
             message: String(e?.message || e || 'Worker API error'),
             code: e?.code,
+            errorMessage: e?.errorMessage ?? e?.error_message,
             name: String(e?.name || 'Error'),
         };
     }
@@ -1078,13 +1076,13 @@ async function handleApiCall(msg: any): Promise<void> {
     sendToMaster({ type: 'api_response', id, result, error });
 }
 
-async function getDailyGiftOverview(): Promise<any> {
+async function getDailyGiftOverview(propagateErrors: boolean = false): Promise<any> {
     const auto = getAutomation() || {};
     const task = getTaskDailyStateLikeApp
-        ? await getTaskDailyStateLikeApp()
+        ? await getTaskDailyStateLikeApp(propagateErrors)
         : (getTaskClaimDailyState ? getTaskClaimDailyState() : { doneToday: false, lastClaimAt: 0 });
     const growthTask = getGrowthTaskStateLikeApp
-        ? await getGrowthTaskStateLikeApp()
+        ? await getGrowthTaskStateLikeApp(propagateErrors)
         : { doneToday: false, completedCount: 0, totalCount: 0, tasks: [] };
     const email = getEmailDailyState ? getEmailDailyState() : { doneToday: false, lastCheckAt: 0 };
     const free = getFreeGiftDailyState ? getFreeGiftDailyState() : { doneToday: false, lastClaimAt: 0 };

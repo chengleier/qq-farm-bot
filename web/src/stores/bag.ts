@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import { useAccountStore } from '@/stores/account'
 
 export const useBagStore = defineStore('bag', () => {
@@ -80,21 +80,30 @@ export const useBagStore = defineStore('bag', () => {
   async function useItem(accountId: string, itemId: number, count = 1, uid = 0) {
     const res = await api.post('/api/bag/use', { itemId, count, uid }, {
       headers: { 'x-account-id': accountId },
-    })
+      skipErrorToast: true,
+    } as any)
+    if (res.data && res.data.ok === false)
+      res.data.error = getApiErrorMessage(res.data, '操作失败')
     return res.data
   }
 
   async function sellItems(accountId: string, items: Array<{ id: number, count: number, uid?: number }>) {
     const res = await api.post('/api/bag/sell', { items }, {
       headers: { 'x-account-id': accountId },
-    })
+      skipErrorToast: true,
+    } as any)
+    if (res.data && res.data.ok === false)
+      res.data.error = getApiErrorMessage(res.data, '出售失败')
     return res.data
   }
 
   async function setItemsLocked(accountId: string, itemUids: number[], locked: boolean) {
     const res = await api.post('/api/bag/lock', { itemUids, locked }, {
       headers: { 'x-account-id': accountId },
-    })
+      skipErrorToast: true,
+    } as any)
+    if (res.data && res.data.ok === false)
+      res.data.error = getApiErrorMessage(res.data, '操作失败')
     return res.data
   }
 

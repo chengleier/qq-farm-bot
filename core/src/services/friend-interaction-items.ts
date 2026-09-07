@@ -464,6 +464,7 @@ async function runInteractionBatch(
     landsInput: any[],
     landIds: string[],
     friendMode: boolean = true,
+    propagateErrors: boolean = false,
 ): Promise<any[]> {
     const itemName = String(info.name || `物品${itemId}`);
     const targetMap = buildTargetLandMap(landsInput, itemId, friendMode);
@@ -518,6 +519,11 @@ async function runInteractionBatch(
                 ]),
             });
         } catch (error: any) {
+            if (propagateErrors && (typeof GatewayError === 'function' && error instanceof GatewayError
+                || error?.name === 'GatewayError'
+                || typeof error?.errorMessage === 'string')) {
+                throw error;
+            }
             attempts.push(interactionFailure(itemName, landId, error, target));
             const gatewayFailure = typeof GatewayError === 'function' && error instanceof GatewayError;
             if (!gatewayFailure && !(error instanceof FriendInteractionBusinessError)) {
@@ -538,7 +544,7 @@ async function runInteractionBatch(
     return attempts;
 }
 
-async function performFriendInteractionItemBatch(friendGidInput: unknown, itemIdInput: unknown, landIdsInput: unknown): Promise<any> {
+async function performFriendInteractionItemBatch(friendGidInput: unknown, itemIdInput: unknown, landIdsInput: unknown, propagateErrors: boolean = false): Promise<any> {
     const friendGid = positiveDecimal(friendGidInput, 'INVALID_FRIEND_INTERACTION_GID', 'friendGid');
     const friendGidNumber = safePositiveNumber(friendGid, 'INVALID_FRIEND_INTERACTION_GID', 'friendGid');
     const itemId = safePositiveNumber(itemIdInput, 'INVALID_FRIEND_INTERACTION_ITEM_ID', 'itemId');
@@ -557,7 +563,7 @@ async function performFriendInteractionItemBatch(friendGidInput: unknown, itemId
         if (actualGid !== '0' && actualGid !== friendGid) {
             throw businessError('FRIEND_INTERACTION_HOST_MISMATCH', '进入的好友农场与所选 GID 不一致');
         }
-        attempts = await runInteractionBatch(itemId, info, stacks, friendGid, enterReply?.lands || [], landIds);
+        attempts = await runInteractionBatch(itemId, info, stacks, friendGid, enterReply?.lands || [], landIds, true, propagateErrors);
     } finally {
         await leaveFriendFarm(friendGidNumber);
     }
@@ -594,7 +600,7 @@ async function performFriendInteractionItemBatch(friendGidInput: unknown, itemId
     };
 }
 
-async function performFriendFarmInteractionItem(friendGidInput: unknown, itemIdInput: unknown): Promise<any> {
+async function performFriendFarmInteractionItem(friendGidInput: unknown, itemIdInput: unknown, propagateErrors: boolean = false): Promise<any> {
     const friendGid = positiveDecimal(friendGidInput, 'INVALID_FRIEND_INTERACTION_GID', 'friendGid');
     const friendGidNumber = safePositiveNumber(friendGid, 'INVALID_FRIEND_INTERACTION_GID', 'friendGid');
     const itemId = safePositiveNumber(itemIdInput, 'INVALID_FRIEND_INTERACTION_ITEM_ID', 'itemId');
@@ -640,7 +646,7 @@ function currentAccountGid(): string {
     return positiveDecimal(state.gid, 'SELF_INTERACTION_ACCOUNT_UNAVAILABLE', '当前账号 GID');
 }
 
-async function performSelfInteractionItemBatch(itemIdInput: unknown, landIdsInput: unknown): Promise<any> {
+async function performSelfInteractionItemBatch(itemIdInput: unknown, landIdsInput: unknown, propagateErrors: boolean = false): Promise<any> {
     const hostGid = currentAccountGid();
     const itemId = safePositiveNumber(itemIdInput, 'INVALID_FRIEND_INTERACTION_ITEM_ID', 'itemId');
     const landIds = normalizeLandIds(landIdsInput);
@@ -651,7 +657,7 @@ async function performSelfInteractionItemBatch(itemIdInput: unknown, landIdsInpu
 
     const stacks = await resolveUsableStacks(itemId, info, landIds.length);
     const landsReply = await getAllLands();
-    const attempts = await runInteractionBatch(itemId, info, stacks, hostGid, landsReply?.lands || [], landIds, false);
+    const attempts = await runInteractionBatch(itemId, info, stacks, hostGid, landsReply?.lands || [], landIds, false, propagateErrors);
 
     const succeeded = attempts.filter((attempt: any) => attempt.ok);
     const failed = attempts.filter((attempt: any) => !attempt.ok);
@@ -693,16 +699,16 @@ function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
     return run;
 }
 
-function useFriendInteractionItemBatch(friendGidInput: unknown, itemIdInput: unknown, landIdsInput: unknown): Promise<any> {
-    return serializeMutation(() => performFriendInteractionItemBatch(friendGidInput, itemIdInput, landIdsInput));
+function useFriendInteractionItemBatch(friendGidInput: unknown, itemIdInput: unknown, landIdsInput: unknown, propagateErrors: boolean = false): Promise<any> {
+    return serializeMutation(() => performFriendInteractionItemBatch(friendGidInput, itemIdInput, landIdsInput, propagateErrors));
 }
 
-function useFriendFarmInteractionItem(friendGidInput: unknown, itemIdInput: unknown): Promise<any> {
-    return serializeMutation(() => performFriendFarmInteractionItem(friendGidInput, itemIdInput));
+function useFriendFarmInteractionItem(friendGidInput: unknown, itemIdInput: unknown, propagateErrors: boolean = false): Promise<any> {
+    return serializeMutation(() => performFriendFarmInteractionItem(friendGidInput, itemIdInput, propagateErrors));
 }
 
-function useSelfInteractionItemBatch(itemIdInput: unknown, landIdsInput: unknown): Promise<any> {
-    return serializeMutation(() => performSelfInteractionItemBatch(itemIdInput, landIdsInput));
+function useSelfInteractionItemBatch(itemIdInput: unknown, landIdsInput: unknown, propagateErrors: boolean = false): Promise<any> {
+    return serializeMutation(() => performSelfInteractionItemBatch(itemIdInput, landIdsInput, propagateErrors));
 }
 
 module.exports = {

@@ -234,11 +234,13 @@ function createWorkerManager(options: WorkerManagerOptions) {
         });
     }
 
-    function errorFromWorkerPayload(payload: any): Error & { code?: string | number } {
+    function errorFromWorkerPayload(payload: any): Error & { code?: string | number; errorMessage?: string } {
         if (!payload || typeof payload !== 'object') return new Error(String(payload || 'Worker API error'));
-        const error: Error & { code?: string | number } = new Error(String(payload.message || 'Worker API error'));
+        const error: Error & { code?: string | number; errorMessage?: string } = new Error(String(payload.message || 'Worker API error'));
         if (payload.name) error.name = String(payload.name);
         if (payload.code !== undefined && payload.code !== null && payload.code !== '') error.code = payload.code;
+        const protocolMessage = payload.errorMessage ?? payload.error_message;
+        if (protocolMessage !== undefined && protocolMessage !== null) error.errorMessage = String(protocolMessage);
         return error;
     }
 

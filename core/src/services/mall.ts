@@ -162,7 +162,7 @@ async function autoBuyOrganicFertilizerViaMall(): Promise<number> {
     return totalBought;
 }
 
-async function autoBuyFertilizerViaMall(type: string = 'organic', targetCount: number = 0): Promise<number> {
+async function autoBuyFertilizerViaMall(type: string = 'organic', targetCount: number = 0, propagateErrors: boolean = false): Promise<number> {
     log('商城', `开始购买化肥, 类型: ${type === 'normal' ? '无机化肥' : '有机化肥'}, 数量: ${targetCount || '不限'}`, {
         module: 'warehouse',
         event: '购买化肥',
@@ -235,6 +235,7 @@ async function autoBuyFertilizerViaMall(type: string = 'organic', targetCount: n
                 }
                 buyPausedNoGoldDateKey = getSystemDateKey();
             }
+            if (propagateErrors) throw e;
             break;
         }
     }
@@ -275,13 +276,13 @@ async function autoBuyOrganicFertilizer(force: boolean = false): Promise<number>
     }
 }
 
-async function autoBuyFertilizer(force: boolean = false, type: string = 'organic', targetCount: number = 0): Promise<number> {
+async function autoBuyFertilizer(force: boolean = false, type: string = 'organic', targetCount: number = 0, propagateErrors: boolean = false): Promise<number> {
     const now: number = Date.now();
     if (!force && now - lastBuyAt < BUY_COOLDOWN_MS) return 0;
     lastBuyAt = now;
 
     try {
-        const totalBought: number = await autoBuyFertilizerViaMall(type, targetCount);
+        const totalBought: number = await autoBuyFertilizerViaMall(type, targetCount, propagateErrors);
         if (totalBought > 0) {
             buyDoneDateKey = getSystemDateKey();
             buyLastSuccessAt = Date.now();
@@ -295,7 +296,8 @@ async function autoBuyFertilizer(force: boolean = false, type: string = 'organic
             });
         }
         return totalBought;
-    } catch {
+    } catch (error) {
+        if (propagateErrors) throw error;
         return 0;
     }
 }
@@ -359,7 +361,7 @@ async function buyFreeGifts(force: boolean = false): Promise<number> {
     }
 }
 
-async function checkAndBuyFertilizerByThreshold(type: string, count: number, thresholdHours: number): Promise<any> {
+async function checkAndBuyFertilizerByThreshold(type: string, count: number, thresholdHours: number, propagateErrors: boolean = false): Promise<any> {
     const { getBag, getBagItems, getContainerHoursFromBagItems } = require('./warehouse');
 
     if (count <= 0 || thresholdHours <= 0) {
@@ -383,7 +385,7 @@ async function checkAndBuyFertilizerByThreshold(type: string, count: number, thr
         });
 
         if (currentHours < thresholdHours) {
-            const bought: number = await autoBuyFertilizer(true, type, count);
+            const bought: number = await autoBuyFertilizer(true, type, count, propagateErrors);
             return { bought, currentHours, thresholdHours, needed: true };
         }
 
@@ -395,11 +397,12 @@ async function checkAndBuyFertilizerByThreshold(type: string, count: number, thr
             result: 'error',
             error: e.message,
         });
+        if (propagateErrors) throw e;
         return { bought: 0, error: e.message };
     }
 }
 
-async function checkAndBuyFertilizerBoth(options: any): Promise<any> {
+async function checkAndBuyFertilizerBoth(options: any, propagateErrors: boolean = false): Promise<any> {
     const { getBag, getBagItems, getContainerHoursFromBagItems } = require('./warehouse');
     const { sleep, randomDelay } = require('../utils/utils');
 
@@ -441,7 +444,7 @@ async function checkAndBuyFertilizerBoth(options: any): Promise<any> {
             });
 
             if (containerHours.organic < organicThresholdHours) {
-                result.organicBought = await autoBuyFertilizer(true, 'organic', organicCount);
+                result.organicBought = await autoBuyFertilizer(true, 'organic', organicCount, propagateErrors);
             }
         }
 
@@ -461,7 +464,7 @@ async function checkAndBuyFertilizerBoth(options: any): Promise<any> {
             });
 
             if (containerHours.normal < normalThresholdHours) {
-                result.normalBought = await autoBuyFertilizer(true, 'normal', normalCount);
+                result.normalBought = await autoBuyFertilizer(true, 'normal', normalCount, propagateErrors);
             }
         }
 
@@ -473,6 +476,7 @@ async function checkAndBuyFertilizerBoth(options: any): Promise<any> {
             result: 'error',
             error: e.message,
         });
+        if (propagateErrors) throw e;
         return { ...result, error: e.message };
     }
 }

@@ -34,7 +34,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             }
             res.json({ ok: true, data });
         } catch (e: any) {
-            res.json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -63,7 +63,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             }
             res.json({ ok: true, data: lastData || {} });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -79,7 +79,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             const bought = await ctx.provider.buyFertilizer(id, type, count);
             res.json({ ok: true, bought });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -108,7 +108,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             });
             res.json({ ok: true, ...result });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -495,7 +495,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             }
             res.json({ ok: true });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -510,7 +510,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             }
             res.json({ ok: true });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 
@@ -549,7 +549,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
             const data = getPlantRankings(sortBy);
             res.json({ ok: true, data });
         } catch (e: any) {
-            res.status(500).json({ ok: false, error: e.message });
+            handleApiError(res, e);
         }
     });
 

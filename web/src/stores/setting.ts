@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 
 export interface AutomationConfig {
   farm?: boolean
@@ -306,7 +306,7 @@ export const useSettingStore = defineStore('setting', () => {
           saved: !!data?.saved,
           unconfirmed: !!data?.unconfirmed,
           data: data?.data,
-          error: data?.error || '保存失败',
+          error: getApiErrorMessage(data, '保存失败'),
         }
       }
 
@@ -317,7 +317,7 @@ export const useSettingStore = defineStore('setting', () => {
       return { ok: true, data: data.data }
     }
     catch (error: any) {
-      return { ok: false, error: error?.response?.data?.error || error?.message || '保存失败' }
+      return { ok: false, error: getApiErrorMessage(error, '保存失败') }
     }
     finally {
       endRequest()
@@ -335,7 +335,7 @@ export const useSettingStore = defineStore('setting', () => {
       return { ok: false, error: '保存失败' }
     }
     catch (error: any) {
-      return { ok: false, error: error?.response?.data?.error || error?.message || '保存失败' }
+      return { ok: false, error: getApiErrorMessage(error, '保存失败') }
     }
     finally {
       endRequest()

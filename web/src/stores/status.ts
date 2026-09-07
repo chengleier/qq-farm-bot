@@ -3,7 +3,7 @@ import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { io } from 'socket.io-client'
 import { ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 
 // Define interfaces for better type checking
 interface DailyGift {
@@ -187,12 +187,12 @@ export const useStatusStore = defineStore('status', () => {
         error.value = ''
       }
       else {
-        error.value = data.error
+        error.value = getApiErrorMessage(data, '获取状态失败')
       }
     }
     catch (e: any) {
       if (sequence === statusRequestSequence)
-        error.value = e.message
+        error.value = getApiErrorMessage(e, '获取状态失败')
     }
     finally {
       if (sequence === statusRequestSequence)
@@ -254,9 +254,12 @@ export const useStatusStore = defineStore('status', () => {
       if (data.ok) {
         dailyGifts.value = data.data
       }
+      else {
+        error.value = getApiErrorMessage(data, '获取每日奖励失败')
+      }
     }
     catch (e) {
-      console.error('获取每日奖励失败', e)
+      error.value = getApiErrorMessage(e, '获取每日奖励失败')
     }
   }
 

@@ -2,7 +2,7 @@
 import { NCard } from 'naive-ui/es/card'
 import { NModal } from 'naive-ui/es/modal'
 import { ref, watch } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 
@@ -49,11 +49,11 @@ async function save() {
       emit('close')
     }
     else {
-      errorMessage.value = `保存失败: ${res.data.error}`
+      errorMessage.value = `保存失败: ${getApiErrorMessage(res.data, '请求失败')}`
     }
   }
   catch (e: any) {
-    errorMessage.value = `保存失败: ${e.response?.data?.error || e.message}`
+    errorMessage.value = `保存失败: ${getApiErrorMessage(e, '请求失败')}`
   }
   finally {
     loading.value = false

@@ -360,7 +360,7 @@ module.exports = {
         doneToday: taskClaimDoneDateKey === getSystemDateKey(),
         lastClaimAt: taskClaimLastAt,
     }),
-    getTaskDailyStateLikeApp: async () => {
+    getTaskDailyStateLikeApp: async (propagateErrors: boolean = false) => {
         try {
             const reply: any = await getTaskInfo();
             const ti: any = reply && reply.task_info ? reply.task_info : {};
@@ -388,7 +388,8 @@ module.exports = {
                 completedCount,
                 totalCount: 3,
             };
-        } catch {
+        } catch (error) {
+            if (propagateErrors) throw error;
             return {
                 key: 'task_claim',
                 doneToday: false,
@@ -400,7 +401,7 @@ module.exports = {
             };
         }
     },
-    getGrowthTaskStateLikeApp: async () => {
+    getGrowthTaskStateLikeApp: async (propagateErrors: boolean = false) => {
         try {
             const reply: any = await getTaskInfo();
             const ti: any = reply && reply.task_info ? reply.task_info : {};
@@ -434,7 +435,8 @@ module.exports = {
                 currentTask,
                 tasks,
             };
-        } catch {
+        } catch (error) {
+            if (propagateErrors) throw error;
             return {
                 key: 'growth_task',
                 doneToday: false,

@@ -5,7 +5,7 @@ import { NTimePicker } from 'naive-ui/es/time-picker'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
@@ -447,10 +447,16 @@ async function fetchBagSeeds(accountId = currentAccountId.value) {
     if (res.data.ok) {
       bagSeeds.value = (res.data.data || []).filter((seed: BagSeedItem) => seed.plantSize >= 1)
     }
+    else {
+      bagSeeds.value = []
+      bagSeedsError.value = getApiErrorMessage(res.data, '加载失败')
+      bagSeedsLoadedAccountId = accountId
+    }
     if (accountId === currentAccountId.value)
       bagSeedsLoadedAccountId = accountId
   }
   catch (e: any) {
+    e.message = getApiErrorMessage(e, '加载失败')
     if (requestRevision === bagSeedsRequestRevision && accountId === currentAccountId.value) {
       bagSeedsError.value = e.message || '加载失败'
       bagSeedsLoadedAccountId = accountId
@@ -1236,11 +1242,11 @@ async function handleTestOffline() {
       showAlert('测试消息发送成功', 'primary')
     }
     else {
-      showAlert(`测试失败: ${data?.error || '未知错误'}`, 'danger')
+      showAlert(`测试失败: ${getApiErrorMessage(data, '未知错误')}`, 'danger')
     }
   }
   catch (e: any) {
-    const msg = e?.response?.data?.error || e?.message || '请求失败'
+    const msg = getApiErrorMessage(e, '请求失败')
     showAlert(`测试失败: ${msg}`, 'danger')
   }
   finally {
@@ -1250,6 +1256,7 @@ async function handleTestOffline() {
 
 const systemConfigSaving = ref(false)
 const systemConfigLoading = ref(false)
+const loginSettingsSaving = ref(false)
 
 const defaultDeviceInfo = {
   os: 'Windows',
@@ -1277,6 +1284,12 @@ const defaultSystemConfig = ref({
   timeZone: 'Asia/Shanghai',
   deviceInfo: { ...defaultDeviceInfo },
 })
+const localLoginSettings = ref({
+  wechatQrLogin: true,
+  qqQrLogin: false,
+  napCatEndpoint: '',
+  napCatSignature: '',
+})
 const devicePresets = ref<any[]>([])
 const selectedPresetId = ref('')
 const timeZoneOptions = ref([
@@ -1300,6 +1313,15 @@ function normalizeSystemConfig(source: any, fallback: any) {
     os: source?.os || 'Windows',
     timeZone: source?.timeZone || fallback.timeZone || 'Asia/Shanghai',
     deviceInfo: source?.deviceInfo ? { ...fallback.deviceInfo, ...source.deviceInfo } : { ...fallback.deviceInfo },
+  }
+}
+
+function normalizeLoginSettings(source: any) {
+  return {
+    wechatQrLogin: typeof source?.wechatQrLogin === 'boolean' ? source.wechatQrLogin : true,
+    qqQrLogin: typeof source?.qqQrLogin === 'boolean' ? source.qqQrLogin : false,
+    napCatEndpoint: typeof source?.napCatEndpoint === 'string' ? source.napCatEndpoint.trim() : '',
+    napCatSignature: typeof source?.napCatSignature === 'string' ? source.napCatSignature.trim() : '',
   }
 }
 
@@ -1341,6 +1363,7 @@ async function loadSystemConfig() {
       }
       defaultSystemConfig.value = normalizeSystemConfig(data.data.default, defaultSystemConfig.value)
       localSystemConfig.value = normalizeSystemConfig(data.data.saved || data.data.default, defaultSystemConfig.value)
+      localLoginSettings.value = normalizeLoginSettings(data.data.loginSettings)
     }
   }
   catch (e) {
@@ -1351,16 +1374,38 @@ async function loadSystemConfig() {
   }
 }
 
+async function handleSaveLoginSettings() {
+  if (localLoginSettings.value.qqQrLogin
+    && (!localLoginSettings.value.napCatEndpoint.trim() || !localLoginSettings.value.napCatSignature.trim())) {
+    showAlert('开启 QQ 扫码登录前，请配置 NapCat 接口地址和接口签名', 'danger')
+    return
+  }
+  loginSettingsSaving.value = true
+  try {
+    const { data } = await api.post('/api/settings/login-config', localLoginSettings.value)
+    if (data?.ok) {
+      localLoginSettings.value = normalizeLoginSettings(data.data)
+    }
+    showAlert(data?.ok ? '登录设置已保存' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
+  }
+  catch (e: any) {
+    showAlert(`保存失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
+  }
+  finally {
+    loginSettingsSaving.value = false
+  }
+}
+
 async function handleSaveSystemConfig() {
   systemConfigSaving.value = true
   try {
     localSystemConfig.value.clientVersion = localSystemConfig.value.deviceInfo.clientVersion
     localSystemConfig.value.os = localSystemConfig.value.deviceInfo.os
     const { data } = await api.post('/api/settings/system-config', localSystemConfig.value)
-    showAlert(data?.ok ? '系统配置已保存并立即生效' : data?.error || '保存失败', data?.ok ? 'primary' : 'danger')
+    showAlert(data?.ok ? '系统配置已保存并立即生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
   catch (e: any) {
-    showAlert(`保存失败: ${e.message || '未知错误'}`, 'danger')
+    showAlert(`保存失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
   }
   finally {
     systemConfigSaving.value = false
@@ -1377,11 +1422,11 @@ async function handleResetSystemConfig() {
       showAlert('系统配置已重置为默认值', 'primary')
     }
     else {
-      showAlert(data?.error || '重置失败', 'danger')
+      showAlert(getApiErrorMessage(data, '重置失败'), 'danger')
     }
   }
   catch (e: any) {
-    showAlert(`重置失败: ${e.message || '未知错误'}`, 'danger')
+    showAlert(`重置失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
   }
   finally {
     systemConfigSaving.value = false
@@ -1865,19 +1910,28 @@ async function handleResetSystemConfig() {
             系统设置
           </h3>
 
-          <div class="space-y-4">
-            <div class="border farm-card border-gray-200 rounded-2xl bg-white p-4 shadow-md dark:border-gray-700 dark:bg-gray-800">
-              <h4 class="mb-3 flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
-                <span class="i-carbon-settings" />
-                运行环境
-              </h4>
+          <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <section class="farm-card rounded-lg p-4">
+              <div class="mb-4 flex items-start gap-3">
+                <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400">
+                  <span class="i-carbon-settings-adjust text-xl" />
+                </div>
+                <div>
+                  <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                    运行环境
+                  </h4>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    服务器连接、时区与客户端设备参数
+                  </p>
+                </div>
+              </div>
 
               <div v-if="systemConfigLoading" class="py-8 text-center text-gray-500">
                 <span class="i-svg-spinners-90-ring-with-bg inline-block text-2xl" />
               </div>
-              <div v-else class="space-y-4">
-                <div v-if="devicePresets.length" class="space-y-2">
-                  <label class="block text-sm text-gray-700 font-medium dark:text-gray-300">设备预设</label>
+              <div v-else class="space-y-3">
+                <div v-if="devicePresets.length" class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                  <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">设备预设</label>
                   <div class="flex flex-wrap gap-2">
                     <NButton
                       v-for="preset in devicePresets"
@@ -1893,27 +1947,28 @@ async function handleResetSystemConfig() {
                   </div>
                 </div>
 
-                <BaseInput
-                  v-model="localSystemConfig.serverUrl"
-                  label="服务器地址"
-                  type="text"
-                  placeholder="wss://..."
-                />
-
-                <div>
-                  <BaseSelect
-                    v-model="localSystemConfig.timeZone"
-                    label="系统时区"
-                    :options="timeZoneOptions"
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <BaseInput
+                    v-model="localSystemConfig.serverUrl"
+                    label="服务器地址"
+                    type="text"
+                    placeholder="wss://..."
                   />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    每日礼包、好友额度、任务统计、安静时段和日志时间均以此时区为准；推荐使用北京时间 / 上海。
-                  </p>
+                  <div>
+                    <BaseSelect
+                      v-model="localSystemConfig.timeZone"
+                      label="系统时区"
+                      :options="timeZoneOptions"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+                      礼包、任务、安静时段和日志均以此时区为准。
+                    </p>
+                  </div>
                 </div>
 
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div class="flex flex-col gap-1.5">
-                    <label class="text-sm text-gray-700 font-medium dark:text-gray-300">平台</label>
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">平台</label>
                     <div class="flex flex-wrap gap-2">
                       <NButton
                         v-for="option in platformOptions"
@@ -1927,8 +1982,8 @@ async function handleResetSystemConfig() {
                       </NButton>
                     </div>
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    <label class="text-sm text-gray-700 font-medium dark:text-gray-300">系统</label>
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">系统</label>
                     <div class="flex flex-wrap gap-2">
                       <NButton
                         v-for="option in osOptions"
@@ -1950,7 +2005,6 @@ async function handleResetSystemConfig() {
                     label="客户端版本"
                     type="text"
                     :placeholder="defaultSystemConfig.deviceInfo.clientVersion || '从服务器加载中...'"
-                    class="sm:col-span-2"
                   />
                   <BaseInput
                     v-model="localSystemConfig.deviceInfo.sysSoftware"
@@ -1981,7 +2035,6 @@ async function handleResetSystemConfig() {
                     label="User-Agent"
                     type="text"
                     placeholder="Mozilla/5.0 ..."
-                    class="sm:col-span-2"
                   />
                 </div>
 
@@ -1994,15 +2047,79 @@ async function handleResetSystemConfig() {
                   </BaseButton>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div class="border farm-card border-gray-200 rounded-2xl bg-white p-4 shadow-md dark:border-gray-700 dark:bg-gray-800">
-              <h4 class="mb-3 flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
-                🔑 修改管理员密码
-              </h4>
+            <div class="min-w-0 space-y-4">
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-900/25 dark:text-violet-400">
+                    <span class="i-carbon-login text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      登录设置
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      控制添加账号时可用的扫码登录方式
+                    </p>
+                  </div>
+                </div>
 
-              <div class="space-y-3">
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <BaseSwitch v-model="localLoginSettings.wechatQrLogin" label="微信扫码登录" />
+                  </div>
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <BaseSwitch v-model="localLoginSettings.qqQrLogin" label="QQ扫码登录" />
+                  </div>
+                </div>
+
+                <div
+                  v-if="localLoginSettings.qqQrLogin"
+                  class="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/70 p-4 sm:grid-cols-2 dark:border-gray-700 dark:bg-gray-900/30"
+                >
+                  <BaseInput
+                    v-model="localLoginSettings.napCatEndpoint"
+                    label="NapCat接口地址"
+                    type="text"
+                    placeholder="http://127.0.0.1:6099"
+                  />
+                  <BaseInput
+                    v-model="localLoginSettings.napCatSignature"
+                    label="NapCat接口签名"
+                    type="password"
+                    placeholder="请输入 NapCat 接口签名"
+                  />
+                </div>
+
+                <div class="mt-3 flex justify-end border-t pt-3 dark:border-gray-700">
+                  <BaseButton
+                    variant="primary"
+                    size="sm"
+                    :loading="loginSettingsSaving"
+                    @click="handleSaveLoginSettings"
+                  >
+                    保存登录设置
+                  </BaseButton>
+                </div>
+              </section>
+
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
+                    <span class="i-carbon-password text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      修改管理员密码
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      更新后台管理登录凭据
+                    </p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <BaseInput
                     v-model="passwordForm.old"
                     label="当前密码"
@@ -2023,7 +2140,7 @@ async function handleResetSystemConfig() {
                   />
                 </div>
 
-                <div class="flex items-center justify-end pt-1">
+                <div class="mt-3 flex items-center justify-end border-t pt-3 dark:border-gray-700">
                   <BaseButton
                     variant="primary"
                     size="sm"
@@ -2033,18 +2150,26 @@ async function handleResetSystemConfig() {
                     修改管理员密码
                   </BaseButton>
                 </div>
-              </div>
-            </div>
+              </section>
 
-            <div class="border farm-card border-gray-200 rounded-2xl bg-white p-4 shadow-md dark:border-gray-700 dark:bg-gray-800">
-              <h4 class="mb-3 flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
-                🔔 下线提醒
-              </h4>
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/25 dark:text-green-400">
+                    <span class="i-carbon-notification text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      下线提醒
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      配置账号离线后的通知与清理
+                    </p>
+                  </div>
+                </div>
 
-              <div class="space-y-3">
-                <div class="grid grid-cols-1 gap-3">
-                  <div class="flex flex-col gap-1.5">
-                    <div class="flex items-center justify-between">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div class="flex min-w-0 flex-col gap-1.5">
+                    <div class="flex min-h-6 items-center justify-between gap-2">
                       <span class="text-sm text-gray-700 font-medium dark:text-gray-300">推送渠道</span>
                       <BaseButton
                         variant="text"
@@ -2060,37 +2185,35 @@ async function handleResetSystemConfig() {
                       :options="channelOptions"
                     />
                   </div>
-                </div>
 
-                <BaseInput
-                  v-if="offlineChannelUsesEndpoint"
-                  v-model="localOffline.endpoint"
-                  :label="offlineEndpointLabel"
-                  type="text"
-                  :placeholder="offlineEndpointPlaceholder"
-                />
-
-                <BaseInput
-                  v-if="!isDingTalkChannel"
-                  v-model="localOffline.token"
-                  :label="offlineTokenLabel"
-                  type="text"
-                  :placeholder="offlineTokenPlaceholder"
-                />
-
-                <template v-else>
                   <BaseInput
-                    v-model="localOffline.secret"
-                    label="加签密钥（可选）"
-                    type="password"
-                    placeholder="仅在机器人开启加签时填写 SEC..."
+                    v-if="offlineChannelUsesEndpoint"
+                    v-model="localOffline.endpoint"
+                    :label="offlineEndpointLabel"
+                    type="text"
+                    :placeholder="offlineEndpointPlaceholder"
                   />
-                  <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-                    从群机器人的设置页复制完整 Webhook；只有开启“加签”时才需要填写加签密钥。
-                  </p>
-                </template>
 
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <BaseInput
+                    v-if="!isDingTalkChannel"
+                    v-model="localOffline.token"
+                    :label="offlineTokenLabel"
+                    type="text"
+                    :placeholder="offlineTokenPlaceholder"
+                  />
+
+                  <template v-else>
+                    <BaseInput
+                      v-model="localOffline.secret"
+                      label="加签密钥（可选）"
+                      type="password"
+                      placeholder="仅在机器人开启加签时填写 SEC..."
+                    />
+                    <p class="text-xs text-gray-500 leading-relaxed sm:col-span-2 dark:text-gray-400">
+                      从群机器人的设置页复制完整 Webhook；只有开启“加签”时才需要填写加签密钥。
+                    </p>
+                  </template>
+
                   <BaseInput
                     v-model="localOffline.title"
                     label="标题"
@@ -2104,36 +2227,36 @@ async function handleResetSystemConfig() {
                     min="0"
                     placeholder="0 表示不删除"
                   />
+                  <BaseInput
+                    v-model="localOffline.msg"
+                    label="内容"
+                    type="text"
+                    placeholder="提醒内容"
+                    class="sm:col-span-2"
+                  />
                 </div>
 
-                <BaseInput
-                  v-model="localOffline.msg"
-                  label="内容"
-                  type="text"
-                  placeholder="提醒内容"
-                />
-              </div>
-
-              <div class="mt-4 flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
-                <BaseButton
-                  variant="secondary"
-                  size="sm"
-                  :loading="offlineTesting"
-                  :disabled="offlineSaving"
-                  @click="handleTestOffline"
-                >
-                  测试通知
-                </BaseButton>
-                <BaseButton
-                  variant="primary"
-                  size="sm"
-                  :loading="offlineSaving"
-                  :disabled="offlineTesting"
-                  @click="handleSaveOffline"
-                >
-                  保存下线提醒设置
-                </BaseButton>
-              </div>
+                <div class="mt-3 flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    :loading="offlineTesting"
+                    :disabled="offlineSaving"
+                    @click="handleTestOffline"
+                  >
+                    测试通知
+                  </BaseButton>
+                  <BaseButton
+                    variant="primary"
+                    size="sm"
+                    :loading="offlineSaving"
+                    :disabled="offlineTesting"
+                    @click="handleSaveOffline"
+                  >
+                    保存下线提醒设置
+                  </BaseButton>
+                </div>
+              </section>
             </div>
           </div>
         </div>

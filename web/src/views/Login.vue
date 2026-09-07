@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import { useUserStore } from '@/stores/user'
@@ -81,17 +81,17 @@ async function handleSubmit() {
   catch (e: any) {
     const data = e.response?.data
     if (data?.errorType === 'rate_limit') {
-      error.value = data.error || '请求过于频繁'
+      error.value = getApiErrorMessage(data, '请求过于频繁')
       if (data.remainingMs)
         rateLimitRemaining.value = Math.ceil(data.remainingMs / 1000)
     }
     else if (data?.errorType === 'locked') {
-      error.value = data.error || '账户已被锁定'
+      error.value = getApiErrorMessage(data, '账户已被锁定')
       if (data.remainingMs)
         lockoutRemaining.value = Math.ceil(data.remainingMs / 1000 / 60)
     }
     else {
-      error.value = data?.error || e.message || '操作异常'
+      error.value = getApiErrorMessage(e, '操作异常')
     }
   }
   finally {

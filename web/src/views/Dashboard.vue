@@ -2,7 +2,7 @@
 import { useIntervalFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -433,11 +433,11 @@ async function clearLogs() {
       await refresh(true)
     }
     else {
-      toastStore.error(`清空失败: ${data?.error || '未知错误'}`)
+      toastStore.error(`清空失败: ${getApiErrorMessage(data, '未知错误')}`)
     }
   }
   catch (e: any) {
-    const msg = e?.response?.data?.error || e?.message || '请求失败'
+    const msg = getApiErrorMessage(e, '请求失败')
     toastStore.error(`清空失败: ${msg}`)
   }
   finally {
