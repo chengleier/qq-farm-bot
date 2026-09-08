@@ -364,8 +364,11 @@ function stopQqPolling() {
 }
 
 function resetQqLogin() {
+  const taskId = qqTaskId.value
   qqFlowVersion += 1
   stopQqPolling()
+  if (taskId)
+    void cancelQqLoginTask(taskId)
   qqTaskId.value = ''
   qqStatus.value = ''
   qqError.value = ''
@@ -412,6 +415,19 @@ async function getQqCodeAndAdd(taskId: string, flowVersion: number) {
     if (isQqFlowActive(taskId, flowVersion))
       qqLoading.value = false
   }
+}
+
+async function cancelQqLoginTask(taskId: string) {
+  if (!taskId)
+    return
+  try {
+    const response = await api.post(`/api/qq-login/tasks/${taskId}/cancel`, undefined, {
+      timeout: 120000,
+      skipErrorToast: true,
+    } as any)
+    ensureQqApiOk(response, 'QQ 登录任务取消失败')
+  }
+  catch {}
 }
 
 async function pollQqLoginRequest(taskId: string, flowVersion: number) {

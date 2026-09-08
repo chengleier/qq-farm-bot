@@ -1,6 +1,6 @@
 import type { Application, Request, Response } from 'express';
 import type { AdminContext } from './context';
-import { createLoginTask, getMiniappCode, QQ_MINIAPP_APP_ID, queryLoginStatus } from '../../services/qq-login/service';
+import { cancelLoginTask, createLoginTask, getMiniappCode, QQ_MINIAPP_APP_ID, queryLoginStatus } from '../../services/qq-login/service';
 export {};
 
 const { createAuthRequired } = require('./middleware');
@@ -51,6 +51,16 @@ function mountQqLoginRoutes(app: Application, ctx: AdminContext): void {
         }
         catch (error: any) {
             sendError(res, error, 'QQ 小程序授权 Code 获取失败');
+        }
+    });
+
+    app.post('/api/qq-login/tasks/:taskId/cancel', async (req: Request, res: Response) => {
+        try {
+            await cancelLoginTask(String(req.params.taskId || ''));
+            res.json({ ok: true });
+        }
+        catch (error: any) {
+            sendError(res, error, 'QQ 登录任务取消失败');
         }
     });
 }

@@ -73,12 +73,13 @@ function normalizeTask(raw: any): QqLoginTask {
     };
 }
 
-async function requestNapCat(path: string, body: Record<string, unknown>): Promise<any> {
+async function requestNapCat(path: string, body: Record<string, unknown>, requireOk = true): Promise<any> {
     const settings = loginSettings();
     let response;
     try {
         response = await axios.post(apiUrl(settings.napCatEndpoint, path), body, {
             timeout: REQUEST_TIMEOUT_MS,
+            validateStatus: status => status === 200,
             headers: {
                 'Content-Type': 'application/json',
                 'X-API-Signature': settings.napCatSignature,
@@ -92,7 +93,7 @@ async function requestNapCat(path: string, body: Record<string, unknown>): Promi
     }
 
     const data = response?.data;
-    if (!data || typeof data !== 'object' || data.ok !== true) {
+    if (requireOk && (!data || typeof data !== 'object' || data.ok !== true)) {
         throw new Error(napCatErrorMessage(data));
     }
     return data;
@@ -126,7 +127,17 @@ async function getMiniappCode(taskId: string): Promise<string> {
     return code;
 }
 
+async function cancelLoginTask(taskId: string): Promise<void> {
+    const id = String(taskId || '').trim();
+    if (!id)
+        throw new Error('登录任务 ID 不能为空');
+    await requestNapCat('/api/qq/logout', {
+        taskId: id,
+    }, false);
+}
+
 export {
+    cancelLoginTask,
     createLoginTask,
     getMiniappCode,
     QQ_MINIAPP_APP_ID,
