@@ -186,12 +186,12 @@ function buildInteractionItemDto(info: any, stacks: any[], targetKind: 'land' | 
     };
 }
 
-async function collectInteractionInventory(
+function buildInteractionInventory(
     predicate: (info: any) => boolean,
     targetKind: 'land' | 'farm' = 'land',
-): Promise<{ items: any[]; stacksByItemId: Map<number, any[]> }> {
-    const [bagReply, baseContext] = await Promise.all([getBag(), getSellConditionContext()]);
-    const bagItems = getBagItems(bagReply);
+    bagItems: any[],
+    baseContext: any,
+): { items: any[]; stacksByItemId: Map<number, any[]> } {
     const itemIds = new Set<number>();
     for (const stack of (Array.isArray(bagItems) ? bagItems : [])) {
         const itemId = toNum(stack?.id ?? stack?.item_id);
@@ -218,11 +218,21 @@ async function collectInteractionInventory(
     return { items, stacksByItemId };
 }
 
+async function collectInteractionInventory(
+    predicate: (info: any) => boolean,
+    targetKind: 'land' | 'farm' = 'land',
+): Promise<{ items: any[]; stacksByItemId: Map<number, any[]> }> {
+    const bagReply = await getBag();
+    const baseContext = await getSellConditionContext();
+    return buildInteractionInventory(predicate, targetKind, getBagItems(bagReply), baseContext);
+}
+
 async function getFriendInteractionItems(): Promise<any> {
-    const [landInventory, farmInventory] = await Promise.all([
-        collectInteractionInventory(isFriendLandInteractionMetadata, 'land'),
-        collectInteractionInventory(isFriendFarmInteractionMetadata, 'farm'),
-    ]);
+    const bagReply = await getBag();
+    const baseContext = await getSellConditionContext();
+    const bagItems = getBagItems(bagReply);
+    const landInventory = buildInteractionInventory(isFriendLandInteractionMetadata, 'land', bagItems, baseContext);
+    const farmInventory = buildInteractionInventory(isFriendFarmInteractionMetadata, 'farm', bagItems, baseContext);
     const items = [...landInventory.items, ...farmInventory.items];
     return {
         items,
