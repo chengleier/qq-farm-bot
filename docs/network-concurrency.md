@@ -100,7 +100,18 @@ Gateway 是一条 WebSocket 长连接，所有业务共用它。这份文档说�
 
 `core/src/core/worker.ts` 的 `runStartupSequence()`。以前是四个错峰定时器（农场 2s / 好友 8s / 每日领取 45s / 神秘商店 60s），每日礼包要等一分钟才领，而那时农场和好友循环已经在跑，几件事叠在一起反而把连接打满。
 
-现在登录动作一结束就串行跑完：挂上农场/好友循环 → `await runDailyRoutines(true)`（邮件 / 每日分享 / 月卡 / 免费礼包 / VIP）→ `await checkAndClaimTasks()` → `await runMysteryShopTick()` → 才挂上后续的周期性定时器。串行意味着同一时刻只有一个业务请求在飞，既领得及时，也不会和心跳抢连接。
+现在登录动作一结束先串行跑完 `await runDailyRoutines(true)`（邮件 / 每日分享 / 月卡 / 免费礼包 / VIP）→ `await checkAndClaimTasks()`，然后才挂上农场/好友主循环和后续周期性定时器。串行意味着登录启动期同一时刻只有一个业务请求在飞，既领得及时，也不会和心跳抢连接。神秘商人不再参与登录首查；只有“自动购买”或“到货提醒”开启时，才每 2 小时定时检查一次。
+
+## 自动任务全局互斥
+
+`core/src/services/automation-lock.ts` 提供进程内的自动任务互斥队列：
+
+- 所有后台自动任务入口都通过 `runExclusiveAutomationTask()` 串行执行；
+- 同一任务链内部的嵌套调用可重入，不会自锁；
+- 心跳、ACE/AntiData、面板前台操作不进这个互斥队列，保留原有优先级和响应体验；
+- 队列只约束“自动任务”，不约束用户手动操作；如果某个自动任务长时间不返回，后续自动任务会排队等待。
+
+当前已接入互斥的自动入口包括：登录启动序列、每日例行、农场巡检、好友巡查、推送触发巡田、好友申请处理、宠物同步、任务领取、神秘商人、化肥购买与立即施肥、收获后出售、宠物礼包拾取。
 
 ## 相关文件
 
@@ -109,6 +120,7 @@ Gateway 是一条 WebSocket 长连接，所有业务共用它。这份文档说�
 - `core/src/utils/network.ts` — 排队、发送、`getGatewayLoad()`、`waitForGatewayIdle()`
 - `core/src/utils/low-priority-gate.ts` — 后台任务的空闲判定、定时任务的健康度退避、让路错误分类
 - `core/src/utils/request-pressure.ts` — 压力日志节流
+- `core/src/services/automation-lock.ts` — 自动任务全局互斥
 - `core/tests/request-priority.test.js` — 分层与容量的契约测试
 - `core/tests/low-priority-gate.test.js` — 让路闸门与定时任务退避的契约测试
 - `core/tests/low-priority-gate.test.js` — 空闲判定与让路错误分类

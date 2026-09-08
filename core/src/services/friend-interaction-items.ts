@@ -292,7 +292,7 @@ function buildTargetLandMap(landsInput: any[], itemId: number, friendMode: boole
         if (landId <= 0 || targets.has(String(landId))) continue;
         const plant = sourceLand?.plant;
         if (!plant || !Array.isArray(plant.phases) || plant.phases.length === 0) continue;
-        const currentPhase = getCurrentPhase(plant.phases, false, '');
+        const currentPhase = getCurrentPhase(plant.phases, false, '', toNum(plant.id));
         const detail = buildLandDetail(sourceLand, { friendMode, landsMap });
         if (!isEligibleInteractionTarget(itemId, detail, currentPhase)) continue;
         targets.set(String(landId), {
