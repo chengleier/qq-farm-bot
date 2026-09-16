@@ -22,6 +22,11 @@ export interface QqLoginTask {
     expiresAt: number;
 }
 
+export interface QqMiniappLoginResult {
+    code: string;
+    nickname?: string;
+}
+
 function loginSettings(): LoginSettings {
     const settings = store.getLoginSettings();
     if (!settings?.qqQrLogin)
@@ -113,7 +118,7 @@ async function queryLoginStatus(taskId: string): Promise<QqLoginTask> {
     }));
 }
 
-async function getMiniappCode(taskId: string): Promise<string> {
+async function getMiniappCode(taskId: string): Promise<QqMiniappLoginResult> {
     const id = String(taskId || '').trim();
     if (!id)
         throw new Error('登录任务 ID 不能为空');
@@ -124,7 +129,8 @@ async function getMiniappCode(taskId: string): Promise<string> {
     const code = String(data?.code || '').trim();
     if (!code)
         throw new Error('NapCat 未返回小程序授权 Code');
-    return code;
+    const nickname = typeof data?.nickname === 'string' ? data.nickname.trim() : '';
+    return nickname ? { code, nickname } : { code };
 }
 
 async function cancelLoginTask(taskId: string): Promise<void> {
