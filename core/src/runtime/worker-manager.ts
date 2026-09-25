@@ -365,14 +365,16 @@ function createWorkerManager(options: WorkerManagerOptions) {
             if (worker.terminalHandled) return;
             worker.terminalHandled = true;
             const reason = msg.reason || '未知';
-            log('系统', `账号 ${worker.name} 被踢下线，已自动停止账号`, { accountId: String(accountId), accountName: worker.name });
+            const reasonCode = Number(msg.reasonCode) || 0;
+            const diagnostics = msg.diagnostics || null;
+            log('系统', `账号 ${worker.name} 被踢下线，已自动停止账号`, { accountId: String(accountId), accountName: worker.name, reasonCode, diagnostics });
             triggerOfflineReminder({
                 accountId,
                 accountName: worker.name,
                 reason: `kickout:${reason}`,
                 offlineMs: 0,
             });
-            addAccountLog('kickout_stop', `账号 ${worker.name} 被踢下线，已自动停止`, accountId, worker.name, { reason });
+            addAccountLog('kickout_stop', `账号 ${worker.name} 被踢下线，已自动停止`, accountId, worker.name, { reason, reasonCode, diagnostics });
             stopWorker(accountId);
         } else if (msg.type === 'account_disconnected') {
             if (worker.terminalHandled) return;
@@ -393,8 +395,10 @@ function createWorkerManager(options: WorkerManagerOptions) {
                 accountId: String(accountId),
                 accountName: worker.name,
                 source,
-                code,
+                disconnectCode: code,
                 phase,
+                reason,
+                diagnostics: msg.diagnostics || null,
             });
             triggerOfflineReminder({
                 accountId,
@@ -407,7 +411,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
                 `账号 ${worker.name} 连接已断开，已停止运行并等待 Helper 刷新 Code 或重新扫码`,
                 accountId,
                 worker.name,
-                { source, code, reason, phase, connectionId: Number(msg.connectionId) || 0 },
+                { source, disconnectCode: code, reason, phase, connectionId: Number(msg.connectionId) || 0, diagnostics: msg.diagnostics || null },
             );
             stopWorker(accountId);
         } else if (msg.type === 'api_response') {

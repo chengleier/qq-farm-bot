@@ -12,6 +12,10 @@ const { log, logWarn } = require('./utils');
 
 const TSDK_VERSION = 'v3.9.0.1790160550';
 const TSDK_SHA256 = '2c9e377ecc9a4fd9019f12191b589d543a60d6654580eb3e237b35f1fa5b1cb7';
+const TSDK_BUILDS = Object.freeze({
+    qq: { file: 'tsdk.wasm', version: TSDK_VERSION, sha256: TSDK_SHA256 },
+    wx: { file: 'tsdk-wx.wasm', version: 'v3.9.0.1790237209', sha256: '4bf6aa0ede9677fe82186c1a76f8df8a14ccd6d14b6ff1280230923189f4e972' },
+});
 const MINI_PROGRAM_APP_IDS = Object.freeze({
     qq: '1112386029',
     wx: 'wx5306c5978fdb76e4',
@@ -111,6 +115,18 @@ class TsdkRuntime {
     private userBound = false;
     private serverTimeGeneration = 0;
     private warned = new Set<string>();
+    private unsupportedAceVmCalls = 0;
+    private lastUnsupportedAceVmAt = 0;
+
+    getDiagnostics() {
+        return {
+            platform: this.hostProfile.platform,
+            version: TSDK_BUILDS[this.hostProfile.platform].version,
+            ready: this.ready,
+            unsupportedAceVmCalls: this.unsupportedAceVmCalls,
+            lastUnsupportedAceVmAt: this.lastUnsupportedAceVmAt,
+        };
+    }
 
     constructor(options: TsdkRuntimeOptions = {}) {
         this.accountId = String(options.accountId || process.env.FARM_ACCOUNT_ID || 'default');
@@ -123,7 +139,7 @@ class TsdkRuntime {
     private warnOnce(key: string, message: string): void {
         if (this.warned.has(key)) return;
         this.warned.add(key);
-        logWarn('ACE', message);
+        logWarn('ACE', message, { event: 'tsdk_host_limitation', feature: key, ...this.getDiagnostics() });
     }
 
     private view(): Uint8Array {
@@ -213,9 +229,11 @@ class TsdkRuntime {
                     const stack = new Error('TSDK JavaScript 调用栈').stack || '';
                     return this.writeCString(stack, ptr, capacity) ? Buffer.byteLength(stack, 'utf8') + 1 : 0;
                 },
-                d: (ptr: number, capacity: number) => this.writeCString(TSDK_VERSION, ptr, capacity),
+                d: (ptr: number, capacity: number) => this.writeCString(TSDK_BUILDS[this.hostProfile.platform].version, ptr, capacity),
                 e: () => {
-                    this.warnOnce('acevm', 'Node.js 环境不提供小游戏 ACEVM 完整性上下文，使用空结果');
+                    this.unsupportedAceVmCalls += 1;
+                    this.lastUnsupportedAceVmAt = Date.now();
+                    this.warnOnce('acevm', '服务端触发 ACEVM 检查，但当前宿主尚未实现该能力，返回空结果；请保留掉线诊断');
                     return 0;
                 },
                 f: () => this.warnOnce('sensors', 'Node.js 环境不提供触摸和陀螺仪数据'),
@@ -307,10 +325,13 @@ class TsdkRuntime {
         if (this.destroyed) throw new Error('TSDK 运行时已销毁');
 
         this.initPromise = (async () => {
-            const wasmPath = getResourcePath('utils', 'tsdk.wasm');
+            const build = TSDK_BUILDS[this.hostProfile.platform];
+            const resourcePath = getResourcePath('utils', build.file);
+            // pkg executes compiled modules under dist/, while WASM assets live under src/.
+            const wasmPath = fs.existsSync(resourcePath) ? resourcePath : path.join(__dirname, '..', '..', 'src', 'utils', build.file);
             const wasm = fs.readFileSync(wasmPath);
             const hash = crypto.createHash('sha256').update(wasm).digest('hex');
-            if (hash !== TSDK_SHA256) throw new Error(`TSDK 文件校验失败: ${hash}`);
+            if (hash !== build.sha256) throw new Error(`TSDK 文件校验失败: ${hash}`);
             fs.mkdirSync(this.dataDir, { recursive: true });
 
             const { instance } = await WebAssembly.instantiate(wasm, this.createImports());
@@ -339,7 +360,7 @@ class TsdkRuntime {
                 this.free(appKey.ptr);
             }
             this.ready = true;
-            log('ACE', `新版 TSDK 初始化成功: ${TSDK_VERSION} (${this.hostProfile.platform})`);
+            log('ACE', `新版 TSDK 初始化成功: ${build.version} (${this.hostProfile.platform})`);
         })().catch((e: any) => {
             this.ready = false;
             this.exports = null;
@@ -486,6 +507,7 @@ module.exports = {
     TsdkRuntime,
     TSDK_VERSION,
     TSDK_SHA256,
+    TSDK_BUILDS,
     MINI_PROGRAM_APP_IDS,
     TSDK_GAME_ID,
     resolveTsdkHostProfile,

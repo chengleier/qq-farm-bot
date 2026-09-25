@@ -50,7 +50,8 @@
       "src/gameConfig/**/*",
       "src/proto/**/*",
       "src/activity-data/**/*",
-      "src/utils/tsdk.wasm"
+      "src/utils/tsdk.wasm",
+      "src/utils/tsdk-wx.wasm"
     ]
   }
 }
