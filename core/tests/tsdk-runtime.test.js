@@ -192,6 +192,53 @@ test('WeChat loads its audited WASM and reports unsupported host calls without u
     }
 });
 
+test('unsupported ACEVM fingerprints exact bounded bytes without executing or retaining task content', () => {
+    for (const platform of ['qq', 'wx']) {
+        const runtime = new TsdkRuntime({ dataDir: path.join(os.tmpdir(), 'synthetic-acevm-diagnostics'), platform });
+        runtime.memory = new WebAssembly.Memory({ initial: 2 });
+        const view = new Uint8Array(runtime.memory.buffer);
+        const invoke = runtime.createImports().a.e;
+        try {
+            assert.equal(runtime.getDiagnostics().lastUnsupportedAceVmTaskHash, '');
+            const tasks = [Buffer.from('{"synthetic":"甲"}'), Buffer.from('{"synthetic":"乙"}'), Buffer.from([0xFF, 0xFE])];
+            assert.equal(tasks[0].length, tasks[1].length);
+            const hashes = [];
+            for (const task of tasks) {
+                view.set(task, 64);
+                view[64 + task.length] = 0;
+                assert.equal(invoke(64), 0);
+                const result = runtime.getDiagnostics();
+                assert.equal(result.lastUnsupportedAceVmTaskHash, crypto.createHash('sha256').update(task).digest('hex'));
+                assert.equal(result.lastUnsupportedAceVmTaskBytes, task.length);
+                assert.equal(result.lastUnsupportedAceVmTaskReadFailed, false);
+                assert.ok(!JSON.stringify(result).includes('synthetic'));
+                hashes.push(result.lastUnsupportedAceVmTaskHash);
+            }
+            assert.notEqual(hashes[0], hashes[1]);
+            assert.equal(runtime.getDiagnostics().unsupportedAceVmCalls, tasks.length);
+            for (const ptr of [undefined, 0, -1, view.length, Number.NaN]) {
+                assert.equal(invoke(ptr), 0);
+                const result = runtime.getDiagnostics();
+                assert.equal(result.lastUnsupportedAceVmTaskHash, '');
+                assert.equal(result.lastUnsupportedAceVmTaskReadFailed, true);
+            }
+            view.fill(65, 64, 64 + 65537);
+            assert.equal(invoke(64), 0);
+            assert.equal(runtime.getDiagnostics().lastUnsupportedAceVmTaskReadFailed, true);
+            view[64 + 65536] = 0;
+            assert.equal(invoke(64), 0);
+            assert.equal(runtime.getDiagnostics().lastUnsupportedAceVmTaskBytes, 65536);
+            assert.equal(runtime.getDiagnostics().lastUnsupportedAceVmTaskReadFailed, false);
+        } finally {
+            runtime.destroy();
+        }
+        const next = new TsdkRuntime({ dataDir: path.join(os.tmpdir(), 'synthetic-acevm-diagnostics'), platform });
+        assert.equal(next.getDiagnostics().unsupportedAceVmCalls, 0);
+        assert.equal(next.getDiagnostics().lastUnsupportedAceVmTaskHash, '');
+        next.destroy();
+    }
+});
+
 test('compiled pkg layout resolves platform WASM assets from src', async () => {
     const vm = require('node:vm');
     const { createRequire } = require('node:module');

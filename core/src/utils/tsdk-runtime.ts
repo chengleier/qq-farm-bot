@@ -117,6 +117,9 @@ class TsdkRuntime {
     private warned = new Set<string>();
     private unsupportedAceVmCalls = 0;
     private lastUnsupportedAceVmAt = 0;
+    private lastUnsupportedAceVmTaskHash = '';
+    private lastUnsupportedAceVmTaskBytes = 0;
+    private lastUnsupportedAceVmTaskReadFailed = false;
 
     getDiagnostics() {
         return {
@@ -125,6 +128,9 @@ class TsdkRuntime {
             ready: this.ready,
             unsupportedAceVmCalls: this.unsupportedAceVmCalls,
             lastUnsupportedAceVmAt: this.lastUnsupportedAceVmAt,
+            lastUnsupportedAceVmTaskHash: this.lastUnsupportedAceVmTaskHash,
+            lastUnsupportedAceVmTaskBytes: this.lastUnsupportedAceVmTaskBytes,
+            lastUnsupportedAceVmTaskReadFailed: this.lastUnsupportedAceVmTaskReadFailed,
         };
     }
 
@@ -140,6 +146,32 @@ class TsdkRuntime {
         if (this.warned.has(key)) return;
         this.warned.add(key);
         logWarn('ACE', message, { event: 'tsdk_host_limitation', feature: key, ...this.getDiagnostics() });
+    }
+
+    private recordUnsupportedAceVm(ptr: number): number {
+        this.unsupportedAceVmCalls += 1;
+        this.lastUnsupportedAceVmAt = Date.now();
+        this.lastUnsupportedAceVmTaskHash = '';
+        this.lastUnsupportedAceVmTaskBytes = 0;
+        this.lastUnsupportedAceVmTaskReadFailed = false;
+        try {
+            // The official ABI takes a NUL-terminated task. Hash the original
+            // bytes, without decoding, executing, retaining or logging the task.
+            if (!ptr) throw new Error('Missing ACEVM task');
+            this.ensureBounds(ptr, 1);
+            const view = this.view();
+            const limit = Math.min(view.length, ptr + 65537);
+            let end = ptr;
+            while (end < limit && view[end] !== 0) end++;
+            if (end >= limit) throw new Error('ACEVM task exceeds diagnostic limit');
+            this.lastUnsupportedAceVmTaskHash = crypto.createHash('sha256').update(view.subarray(ptr, end)).digest('hex');
+            this.lastUnsupportedAceVmTaskBytes = end - ptr;
+        } catch {
+            // Diagnostics must not turn an unsupported call into a WASM trap.
+            this.lastUnsupportedAceVmTaskReadFailed = true;
+        }
+        this.warnOnce('acevm', '服务端触发 ACEVM 检查，但当前宿主未执行该任务，返回失败状态；请保留掉线诊断');
+        return 0;
     }
 
     private view(): Uint8Array {
@@ -230,12 +262,7 @@ class TsdkRuntime {
                     return this.writeCString(stack, ptr, capacity) ? Buffer.byteLength(stack, 'utf8') + 1 : 0;
                 },
                 d: (ptr: number, capacity: number) => this.writeCString(TSDK_BUILDS[this.hostProfile.platform].version, ptr, capacity),
-                e: () => {
-                    this.unsupportedAceVmCalls += 1;
-                    this.lastUnsupportedAceVmAt = Date.now();
-                    this.warnOnce('acevm', '服务端触发 ACEVM 检查，但当前宿主尚未实现该能力，返回空结果；请保留掉线诊断');
-                    return 0;
-                },
+                e: (ptr: number) => this.recordUnsupportedAceVm(ptr),
                 f: () => this.warnOnce('sensors', 'Node.js 环境不提供触摸和陀螺仪数据'),
                 g: (filePtr: number, outputPtr: number, capacity: number, encodingPtr: number) => {
                     try {

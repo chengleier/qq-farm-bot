@@ -62,25 +62,90 @@ function aceHarness() {
     const realRequire = createRequire(filename);
     const tasks = new Map();
     const fed = [];
+    const logs = [];
     let readError = false;
+    let decodeError = false;
+    let feedError = false;
     const overrides = {
         './scheduler': { createScheduler: () => ({ setIntervalTask: (name, _ms, fn) => tasks.set(name, fn), clearAll: () => tasks.clear() }) },
         '../utils/proto': { types: {
             AntiDataRequest: { create: value => value, encode: value => ({ finish: () => value.data }) },
-            AntiDataReply: { decode: value => ({ result: value }) },
+            AntiDataReply: { decode: value => { if (decodeError) throw new Error('decode failed'); return { result: value }; } },
         } },
-        '../utils/utils': { log() {}, logWarn() {} },
+        '../utils/utils': { log: (...args) => logs.push(args), logWarn: (...args) => logs.push(args) },
         '../utils/crypto-wasm': {
             getDataToServer() { if (readError) throw new Error('read failed'); return Buffer.from([1]); },
-            sendDataFromServer: value => fed.push([...value]),
+            sendDataFromServer: value => { if (feedError) throw new Error('feed failed'); fed.push([...value]); },
             processReceivedData() { throw new Error('process failed'); },
+            heartbeatTick() { throw new Error('tick failed'); },
             destroyWasm() {},
         },
     };
     const sandbox = { require: name => overrides[name] || realRequire(name), module: { exports: {} }, exports: {}, Buffer, Date };
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), sandbox, { filename });
-    return { ace: sandbox.module.exports, tasks, fed, failRead: () => { readError = true; } };
+    return {
+        ace: sandbox.module.exports, tasks, fed, logs,
+        failRead: () => { readError = true; },
+        failDecode: () => { decodeError = true; },
+        failFeed: () => { feedError = true; },
+    };
 }
+
+test('empty AntiData confirms transport once per session without implying challenge execution', async () => {
+    const h = aceHarness();
+    h.ace.startAceRuntime(async () => ({ body: Buffer.alloc(0) }));
+    await h.ace.sendAntiData();
+    await h.ace.sendAntiData();
+    assert.equal(h.ace.getAceDiagnostics().replies, 2);
+    assert.equal(h.ace.getAceDiagnostics().nonemptyReplies, 0);
+    const count = event => h.logs.filter(([, , meta]) => meta?.event === event).length;
+    assert.equal(count('antidata_roundtrip'), 1);
+    assert.equal(count('antidata_received'), 0);
+    h.ace.stopAceRuntime();
+    h.ace.startAceRuntime(async () => ({ body: Buffer.from([7]) }));
+    await h.ace.sendAntiData();
+    assert.equal(count('antidata_roundtrip'), 2);
+    assert.equal(count('antidata_received'), 1);
+    h.ace.stopAceRuntime();
+});
+
+test('AntiData failure stage distinguishes collection, transport, decoding and feeding', async () => {
+    for (const stage of ['collect', 'request', 'decode', 'feed']) {
+        const h = aceHarness();
+        h.ace.startAceRuntime(async () => {
+            if (stage === 'request') throw new Error('network failed');
+            return { body: Buffer.from([7]) };
+        });
+        if (stage === 'collect') h.failRead();
+        if (stage === 'decode') h.failDecode();
+        if (stage === 'feed') h.failFeed();
+        await h.ace.sendAntiData();
+        const result = h.ace.getAceDiagnostics();
+        assert.equal(result.lastFailureStage, stage);
+        assert.equal(result.failures, 1);
+        assert.equal(result.requests, stage === 'collect' ? 0 : 1);
+        assert.equal(result.replies, ['decode', 'feed'].includes(stage) ? 1 : 0);
+        assert.equal(result.requestRunning, false);
+        assert.equal(h.logs.find(([, , meta]) => meta?.event === 'antidata_failed')[2].stage, stage);
+        h.ace.stopAceRuntime();
+    }
+});
+
+test('TSDK tick failures do not masquerade as received-data processing failures', () => {
+    const h = aceHarness();
+    h.ace.startAceRuntime(async () => ({ body: Buffer.alloc(0) }));
+    h.tasks.get('heartbeat_tick')();
+    let result = h.ace.getAceDiagnostics();
+    assert.equal(result.taskFailures, 1);
+    assert.equal(result.lastFailedTask, 'heartbeat_tick');
+    assert.equal(result.lastProcessFailureAt, 0);
+    h.tasks.get('process_received_data')();
+    result = h.ace.getAceDiagnostics();
+    assert.equal(result.taskFailures, 2);
+    assert.equal(result.lastFailedTask, 'process_received_data');
+    assert.ok(result.lastProcessFailureAt > 0);
+    h.ace.stopAceRuntime();
+});
 
 test('late AntiData from a stopped connection cannot contaminate its replacement', async () => {
     const h = aceHarness();
@@ -117,6 +182,82 @@ test('empty AntiData replies and local processing failures remain distinguishabl
     assert.equal(h.ace.getAceDiagnostics().failures, 1);
     assert.equal(h.ace.getAceDiagnostics().requestRunning, false);
     h.ace.stopAceRuntime();
+});
+
+test('session summaries retain heartbeat outcomes and isolate a late completion from the next connection', async () => {
+    await loadProto();
+    const filename = path.resolve(__dirname, '../dist/utils/network.js');
+    const realRequire = createRequire(filename);
+    const tasks = new Map();
+    const logs = [];
+    let now = 100000;
+    class Socket {
+        static OPEN = 1;
+        readyState = 1;
+        on() { return this; }
+        close() {}
+    }
+    const overrides = {
+        ws: Socket,
+        '../services/scheduler': { createScheduler: () => ({
+            setIntervalTask: (key, _ms, fn) => tasks.set(key, fn),
+            clear: key => tasks.delete(key), clearAll: () => tasks.clear(),
+        }) },
+        '../services/ace': { stopAceRuntime() {}, getAceDiagnostics: () => ({ replies: 7 }) },
+        './crypto-wasm': { getDiagnostics: () => ({ ready: true }) },
+        './utils': { toLong: Number, toNum: Number, log: (...args) => logs.push(args), logWarn() {}, syncServerTime() {} },
+    };
+    const sandbox = {
+        require: name => overrides[name] || realRequire(name), module: { exports: {} }, exports: {},
+        Buffer, console, process, URL, URLSearchParams, Date: { now: () => now },
+    };
+    vm.runInNewContext(`${fs.readFileSync(filename, 'utf8')}
+        module.exports.activate = () => {
+            currentConnection.phase = 'online';
+            currentConnection.onlineAt = Date.now();
+            userState.gid = 1;
+            startHeartbeat(currentConnection);
+        };
+        module.exports.setSender = fn => { sendMsgAsync = fn; };
+        module.exports.snapshot = () => getConnectionDiagnostics(currentConnection);
+    `, sandbox, { filename });
+    const network = sandbox.module.exports;
+    const heartbeat = () => tasks.get('heartbeat_interval')();
+    const counts = () => JSON.parse(JSON.stringify(network.snapshot().heartbeat));
+    network.connect('synthetic-code');
+    assert.equal(network.snapshot().onlineAgeMs, 0);
+    assert.equal(network.snapshot().heartbeat, null);
+    assert.equal(network.snapshot().ace, null);
+    now += 1000;
+    network.activate();
+    network.setSender(async () => ({ body: Buffer.alloc(0) }));
+    await heartbeat();
+    network.setSender(async () => { throw new Error('network timeout'); });
+    await heartbeat();
+    network.setSender(async () => ({ body: Buffer.alloc(0) }));
+    await heartbeat();
+    assert.deepEqual(counts(), { attempts: 3, replies: 2, failures: 1 });
+    assert.equal(network.snapshot().heartbeatMissCount, 0);
+    let finish;
+    network.setSender(() => new Promise(resolve => { finish = resolve; }));
+    const pending = heartbeat();
+    now += 5000;
+    network.cleanup('test stop');
+    const summary = logs.find(([, , meta]) => meta?.event === 'connection_summary')[2];
+    assert.equal(summary.intentionalClose, true);
+    assert.equal(summary.source, 'intentional_close');
+    assert.equal(summary.diagnostics.onlineAgeMs, 5000);
+    assert.equal(summary.diagnostics.connectionAgeMs, 6000);
+    assert.equal(summary.diagnostics.heartbeat.attempts, 4);
+    assert.equal(summary.diagnostics.ace.replies, 7);
+    network.connect('synthetic-next-code');
+    assert.equal(network.snapshot().ace, null);
+    network.activate();
+    finish({ body: Buffer.alloc(0) });
+    await pending;
+    assert.deepEqual(counts(), { attempts: 0, replies: 0, failures: 0 });
+    assert.equal(summary.diagnostics.heartbeat.replies, 2);
+    network.cleanup();
 });
 
 test('kickout and close snapshots preserve diagnostics before cleanup', async () => {

@@ -47,6 +47,8 @@ interface ConnectionContext {
     finalized: boolean;
     loginInitialized: boolean;
     startedAt?: number;
+    onlineAt?: number;
+    heartbeat?: { attempts: number; replies: number; failures: number };
 }
 
 interface SendMsgOptions {
@@ -941,6 +943,7 @@ async function sendLogin(context: ConnectionContext, onLoginSuccess?: () => void
             if (!isCurrentConnection(context)) return;
             networkScheduler.clear('login_timeout');
             context.phase = 'online';
+            context.onlineAt = Date.now();
             startAceRuntime((service: string, method: string, body: Buffer, timeoutMs?: number) => (
                 sendMsgAsync(service, method, body, { timeoutMs, priority: 'high', criticalLane: 'ace' })
             ));
@@ -974,6 +977,8 @@ function buildHeartbeatBody(gid: number): Buffer {
 
 function startHeartbeat(context: ConnectionContext): void {
     networkScheduler.clear('heartbeat_interval');
+    const heartbeat = { attempts: 0, replies: 0, failures: 0 };
+    context.heartbeat = heartbeat;
     lastHeartbeatResponse = Date.now();
     lastInboundAt = Date.now();
     heartbeatMissCount = 0;
@@ -982,6 +987,7 @@ function startHeartbeat(context: ConnectionContext): void {
         if (!isCurrentConnection(context) || context.phase !== 'online' || !userState.gid) return;
 
         const body = buildHeartbeatBody(userState.gid);
+        heartbeat.attempts += 1;
         try {
             const { body: replyBody } = await sendMsgAsync(
                 'gamepb.userpb.UserService',
@@ -990,6 +996,7 @@ function startHeartbeat(context: ConnectionContext): void {
                 { timeoutMs: HEARTBEAT_REQUEST_TIMEOUT, priority: 'high', criticalLane: 'heartbeat' },
             );
             if (!isCurrentConnection(context)) return;
+            heartbeat.replies += 1;
             lastHeartbeatResponse = Date.now();
             heartbeatMissCount = 0;
             try {
@@ -998,6 +1005,7 @@ function startHeartbeat(context: ConnectionContext): void {
             } catch {}
         } catch {
             if (!isCurrentConnection(context)) return;
+            heartbeat.failures += 1;
             heartbeatMissCount += 1;
             const now = Date.now();
             const inboundSilenceMs = Math.max(0, now - lastInboundAt);
@@ -1041,13 +1049,15 @@ function getConnectionDiagnostics(context: ConnectionContext | null) {
         platform: CONFIG.platform,
         clientVersion: getClientVersion(),
         connectionAgeMs: context?.startedAt ? Math.max(0, Date.now() - context.startedAt) : 0,
+        onlineAgeMs: context?.onlineAt ? Math.max(0, Date.now() - context.onlineAt) : 0,
+        heartbeat: context?.heartbeat ? { ...context.heartbeat } : null,
         ...getGatewayLoad(),
         lastInboundAgeMs: Math.max(0, Date.now() - lastInboundAt),
         lastHeartbeatAgeMs: Math.max(0, Date.now() - lastHeartbeatResponse),
         heartbeatMissCount,
         pendingRequests: describePendingRequests(),
         queuedRequests: describeQueuedRequests(),
-        ace: getAceDiagnostics(),
+        ace: context?.phase === 'online' ? getAceDiagnostics() : null,
         tsdk: cryptoWasm.getDiagnostics(),
     };
 }
@@ -1060,6 +1070,15 @@ function finalizeConnection(context: ConnectionContext, details: DisconnectDetai
     // Snapshot before cleanup destroys TSDK state and clears request queues.
     const diagnostics = getConnectionDiagnostics(context);
     if (wasCurrent) {
+        log('连接', '会话结束', {
+            event: 'connection_summary',
+            connectionId: context.id,
+            source: details.source,
+            disconnectCode: Number(details.code) || 0,
+            phase: context.phase,
+            intentionalClose: context.intentionalClose,
+            diagnostics,
+        });
         currentConnection = null;
         ws = null;
         clearNetworkRuntime(details.reason || details.source);
