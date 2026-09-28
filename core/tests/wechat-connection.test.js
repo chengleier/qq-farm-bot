@@ -6,14 +6,23 @@ const { createRequire } = require('node:module');
 const test = require('node:test');
 const { CONFIG, DEFAULT_CLIENT_VERSION } = require('../dist/config/config');
 const { loadProto, types } = require('../dist/utils/proto');
-const { WX_CLIENT_VERSION, resolvePlatformClientVersion } = require('../dist/utils/client-profile');
+const { getClientVersion } = require('../dist/utils/client-profile');
 const { sanitizeMeta } = require('../dist/services/logger');
 
-test('platform defaults upgrade WeChat without replacing QQ or explicit versions', () => {
-    assert.equal(resolvePlatformClientVersion('qq', DEFAULT_CLIENT_VERSION), DEFAULT_CLIENT_VERSION);
-    assert.equal(resolvePlatformClientVersion('wx', DEFAULT_CLIENT_VERSION), WX_CLIENT_VERSION);
-    assert.equal(resolvePlatformClientVersion('wechat', DEFAULT_CLIENT_VERSION), WX_CLIENT_VERSION);
-    assert.equal(resolvePlatformClientVersion('wx', 'custom-version'), 'custom-version');
+test('client version stays unified across QQ and WeChat platforms', () => {
+    const saved = { platform: CONFIG.platform, clientVersion: CONFIG.clientVersion };
+    try {
+        CONFIG.clientVersion = '';
+        for (const platform of ['qq', 'wx', 'wechat']) {
+            CONFIG.platform = platform;
+            assert.equal(getClientVersion(), DEFAULT_CLIENT_VERSION);
+        }
+        CONFIG.clientVersion = 'custom-version';
+        CONFIG.platform = 'wx';
+        assert.equal(getClientVersion(), 'custom-version');
+    } finally {
+        Object.assign(CONFIG, saved);
+    }
 });
 
 test('decoded WeChat login uses configured device fields and does not invent a launch scene', async () => {
@@ -26,7 +35,7 @@ test('decoded WeChat login uses configured device fields and does not invent a l
         CONFIG.deviceInfo = { sysSoftware: 'Windows test', network: 'wifi', memory: '8192', deviceId: 'test-device' };
         const decode = () => types.LoginRequest.toObject(types.LoginRequest.decode(buildLoginBody()), { longs: String });
         const wx = decode();
-        assert.deepEqual(wx.device_info, { client_version: WX_CLIENT_VERSION, sys_software: 'Windows test', network: 'wifi', memory: '8192', device_id: 'test-device' });
+        assert.deepEqual(wx.device_info, { client_version: DEFAULT_CLIENT_VERSION, sys_software: 'Windows test', network: 'wifi', memory: '8192', device_id: 'test-device' });
         assert.equal(wx.report_data.minigame_channel, 'other');
         assert.equal(wx.report_data.minigame_platid, 2);
         assert.equal(Object.hasOwn(wx, 'scene_id'), false);

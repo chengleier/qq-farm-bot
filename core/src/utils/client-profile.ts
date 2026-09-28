@@ -1,21 +1,13 @@
 export {};
 const { CONFIG, DEFAULT_CLIENT_VERSION } = require('../config/config');
 
-// Verified in the official Windows WeChat capture on 2026-09-25.
-const WX_CLIENT_VERSION = '1.14.2.13_20260922';
-
 function isWechatPlatform(platform: unknown = CONFIG.platform): boolean {
     return ['wx', 'wechat'].includes(String(platform || '').trim().toLowerCase());
 }
 
-function resolvePlatformClientVersion(platform: unknown, configuredVersion: unknown): string {
-    const version = String(configuredVersion || '').trim() || DEFAULT_CLIENT_VERSION;
-    // Only replace the inherited QQ default. Explicit custom versions remain usable.
-    return isWechatPlatform(platform) && version === DEFAULT_CLIENT_VERSION ? WX_CLIENT_VERSION : version;
-}
-
+// QQ 和微信共用同一个客户端版本号，不再按平台区分。
 function getClientVersion(): string {
-    return resolvePlatformClientVersion(CONFIG.platform, CONFIG.clientVersion);
+    return String(CONFIG.clientVersion || '').trim() || DEFAULT_CLIENT_VERSION;
 }
 
 function getLoginDeviceInfo(): Record<string, any> {
@@ -33,4 +25,4 @@ function getLoginDeviceInfo(): Record<string, any> {
     return info;
 }
 
-module.exports = { WX_CLIENT_VERSION, isWechatPlatform, resolvePlatformClientVersion, getClientVersion, getLoginDeviceInfo };
+module.exports = { isWechatPlatform, getClientVersion, getLoginDeviceInfo };
