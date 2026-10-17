@@ -88,7 +88,11 @@ async function purchase(count: number) {
   }
 }
 
-watch(() => slotType, () => { selected.value = null; filter.value = 'all'; load() })
+watch(() => slotType, () => {
+  selected.value = null
+  filter.value = 'all'
+  load()
+})
 watch(currentAccountId, () => {
   selected.value = null
   load()
@@ -109,7 +113,7 @@ onUnmounted(() => {
 
 <template>
   <div class="mall-catalog">
-    <header class="mall-header">
+    <header v-if="mall" class="mall-header">
       <div>
         <span v-if="mall">{{ refreshRemaining }}</span>
       </div>
@@ -119,13 +123,10 @@ onUnmounted(() => {
           <span>{{ currency.name }}</span>
           <strong>{{ currency.balanceKnown ? currency.count.toLocaleString() : '--' }}</strong>
         </div>
-        <button type="button" title="刷新商城" :disabled="mallLoading" @click="load">
-          <div class="i-carbon-renew" :class="{ 'animate-spin': mallLoading }" />
-        </button>
       </div>
     </header>
 
-    <div v-if="error || notice" class="mall-message" :class="{ success: !!notice && !error }">
+    <div v-if="(error && mall) || notice" class="mall-message" :class="{ success: !!notice && !error }">
       <span>{{ error || notice }}</span>
       <button type="button" title="关闭消息" @click="commerceStore.clearMessages">
         <div class="i-carbon-close" />
@@ -133,7 +134,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="slotType === 4 && mall?.membership" class="mall-message membership-status" role="status">
-      {{ mall.membership.isSvip ? 'SVIP 权益生效中 · 剩余 ' + mall.membership.remainingDays + ' 天' : '当前账号不是 SVIP，可浏览专属商品' }}
+      {{ mall.membership.isSvip ? `SVIP 权益生效中 · 剩余 ${mall.membership.remainingDays} 天` : '当前账号不是 SVIP，可浏览专属商品' }}
     </div>
     <section class="mall-toolbar" aria-label="商品筛选">
       <div class="filter-tabs">
@@ -141,10 +142,15 @@ onUnmounted(() => {
           {{ entry.label }}
         </button>
       </div>
-      <label class="mall-search">
-        <div class="i-carbon-search" />
-        <input v-model="query" type="search" placeholder="搜索商品">
-      </label>
+      <div class="mall-toolbar__end">
+        <label class="mall-search">
+          <div class="i-carbon-search" />
+          <input v-model="query" type="search" placeholder="搜索商品">
+        </label>
+        <button type="button" class="mall-refresh" title="刷新商城" aria-label="刷新商城" :disabled="mallLoading" @click="load">
+          <div class="i-carbon-renew" :class="{ 'animate-spin': mallLoading }" />
+        </button>
+      </div>
     </section>
 
     <div v-if="!currentAccountId" class="mall-state">
@@ -308,7 +314,34 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 18px 0;
+  padding: 4px 0 18px;
+}
+.mall-toolbar__end {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.mall-refresh {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  color: var(--ui-muted);
+  background: var(--ui-surface);
+  cursor: pointer;
+}
+.mall-refresh:hover:not(:disabled) {
+  color: var(--ui-primary);
+  border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border));
+}
+.mall-refresh:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .filter-tabs {
   display: flex;
@@ -483,7 +516,11 @@ onUnmounted(() => {
   padding: 10px 14px;
   border-top: 1px solid rgba(58, 86, 68, 0.09);
 }
-.goods-price del { color: var(--ui-subtle); font-size: 10px; font-weight: 400; }
+.goods-price del {
+  color: var(--ui-subtle);
+  font-size: 10px;
+  font-weight: 400;
+}
 .goods-price {
   flex-wrap: wrap;
   flex-shrink: 0;
@@ -552,8 +589,12 @@ onUnmounted(() => {
     align-items: stretch;
     flex-direction: column;
   }
+  .mall-toolbar__end,
   .mall-search {
     width: 100%;
+  }
+  .mall-search {
+    flex: 1 1 auto;
   }
   .goods-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -588,7 +629,11 @@ onUnmounted(() => {
   }
 }
 @media (max-width: 360px) {
-  .goods-card footer { flex-wrap: wrap; }
-  .goods-card footer > button { width: 100%; }
+  .goods-card footer {
+    flex-wrap: wrap;
+  }
+  .goods-card footer > button {
+    width: 100%;
+  }
 }
 </style>

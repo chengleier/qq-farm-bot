@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
 import { getApiErrorMessage } from '@/api'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { usePetStore } from '@/stores/pet'
@@ -203,6 +204,17 @@ function canLock(item: any) {
 
 function canUnlock(item: any) {
   return isLockable(item) && item?.locked === true
+}
+
+// 批量模式下不可选的物品给出原因，避免用户以为“点了没反应”。
+function batchIneligibleReason(item: any) {
+  if (batchAction.value === 'sell')
+    return getSellStatusText(item)
+  if (batchAction.value === 'lock')
+    return item?.locked === true ? '已锁定' : '不可锁定'
+  if (batchAction.value === 'unlock')
+    return item?.locked === true ? '不可解锁' : '未锁定'
+  return ''
 }
 
 function isBatchEligible(item: any) {
@@ -455,6 +467,8 @@ function toggleBatchMode(action: BatchAction) {
   batchSellResult.value = null
 }
 
+const batchEligibleCount = computed(() => filteredItems.value.filter((item: any) => isBatchEligible(item)).length)
+
 function selectAllEligible() {
   selectedForBatch.value.clear()
   for (const item of filteredItems.value) {
@@ -591,9 +605,9 @@ useIntervalFn(loadBag, 60000)
 </script>
 
 <template>
-  <div class="page-stack space-y-4">
-    <div class="mb-4 flex items-center justify-between">
-      <h2 class="flex items-center gap-2 text-2xl font-bold font-display">
+  <div class="personal-panel">
+    <div class="flex shrink-0 items-center justify-between gap-3">
+      <h2 class="flex items-center gap-2 text-lg font-bold">
         <span class="i-carbon-box" /> 背包
       </h2>
       <div class="flex items-center gap-2">
@@ -609,7 +623,9 @@ useIntervalFn(loadBag, 60000)
           :disabled="!currentAccountId || !status?.connection?.connected"
           @click="loadBag"
         >
-          <span class="i-carbon-renew" />
+          <template #icon>
+            <span class="i-carbon-renew" />
+          </template>
         </NButton>
       </div>
     </div>
@@ -631,209 +647,210 @@ useIntervalFn(loadBag, 60000)
       </div>
     </div>
 
-    <div v-else-if="!status?.connection?.connected" class="flex flex-col items-center justify-center gap-4 farm-card rounded-xl p-12 text-center text-gray-500">
-      <div class="i-carbon-network-4 text-4xl" style="opacity: 0.5" />
-      <div>
-        <div class="text-lg font-medium" style="color: var(--theme-text, #374151)">
-          账号未登录
-        </div>
-        <div class="mt-1 text-sm text-gray-400">
-          请先运行账号或检查网络连接
-        </div>
-      </div>
-    </div>
+    <EmptyState v-else-if="!status?.connection?.connected" title="账号未运行" description="启动账号后读取背包物品" icon="i-carbon-connection-signal-off" />
 
-    <div v-else>
+    <div v-else class="personal-panel__card farm-card rounded-2xl p-4 sm:p-5">
       <div v-if="items.length === 0" class="farm-card rounded-xl p-8 text-center text-gray-500">
         无可展示物品
       </div>
 
       <template v-else>
-        <div class="mb-4 flex flex-wrap items-center gap-2">
-          <NButton
-            v-for="cat in CATEGORY_OPTIONS"
-            :key="cat.value"
-            :type="selectedCategory === cat.value ? 'primary' : 'default'"
-            :secondary="selectedCategory !== cat.value"
-            size="small"
-            @click="selectedCategory = cat.value"
-          >
-            <span v-if="cat.value === 'fruit'" class="i-carbon-apple mr-1.5" />
-            <span v-else-if="cat.value === 'mutant'" class="i-carbon-flash mr-1.5" />
-            <span v-else-if="cat.value === 'seed'" class="i-carbon-tree mr-1.5" />
-            <span v-else-if="cat.value === 'tool'" class="i-carbon-tool-box mr-1.5" />
-            <span v-else class="i-carbon-list-boxes mr-1.5" />
-            {{ cat.label }}
-            <span class="ml-1 text-xs opacity-70">({{ categoryCounts[cat.value] || 0 }})</span>
-          </NButton>
-
-          <div class="flex-1" />
-
-          <NButton
-            v-if="sellModeAvailable"
-            :type="batchAction === 'sell' ? 'warning' : 'default'"
-            :secondary="batchAction !== 'sell'"
-            size="small"
-            @click="toggleBatchMode('sell')"
-          >
-            <span v-if="batchAction === 'sell'" class="i-carbon-close mr-1" />
-            <span v-else class="i-carbon-shopping-cart-arrow-down mr-1" />
-            {{ batchAction === 'sell' ? '取消出售' : '批量出售' }}
-          </NButton>
-          <NButton
-            v-if="lockModeAvailable"
-            :type="batchAction === 'lock' ? 'primary' : 'default'"
-            :secondary="batchAction !== 'lock'"
-            size="small"
-            @click="toggleBatchMode('lock')"
-          >
-            <span v-if="batchAction === 'lock'" class="i-carbon-close mr-1" />
-            <span v-else class="i-carbon-locked mr-1" />
-            {{ batchAction === 'lock' ? '取消锁定' : '批量锁定' }}
-          </NButton>
-          <NButton
-            v-if="lockModeAvailable"
-            :type="batchAction === 'unlock' ? 'primary' : 'default'"
-            :secondary="batchAction !== 'unlock'"
-            size="small"
-            @click="toggleBatchMode('unlock')"
-          >
-            <span v-if="batchAction === 'unlock'" class="i-carbon-close mr-1" />
-            <span v-else class="i-carbon-unlocked mr-1" />
-            {{ batchAction === 'unlock' ? '取消解锁' : '批量解锁' }}
-          </NButton>
-          <template v-if="batchMode">
-            <NButton type="primary" secondary size="small" @click="selectAllEligible">
-              <span class="i-carbon-checkmark-outline mr-1" />
-              全选可{{ batchActionLabel }}项
+        <div class="bag-toolbar panel-sticky panel-sticky--inset shrink-0">
+          <div class="bag-categories custom-scrollbar" role="group" aria-label="背包分类">
+            <NButton
+              v-for="cat in CATEGORY_OPTIONS"
+              :key="cat.value"
+              :type="selectedCategory === cat.value ? 'primary' : 'default'"
+              :secondary="selectedCategory !== cat.value"
+              size="small"
+              @click="selectedCategory = cat.value"
+            >
+              <span v-if="cat.value === 'fruit'" class="i-carbon-apple mr-1.5" />
+              <span v-else-if="cat.value === 'mutant'" class="i-carbon-flash mr-1.5" />
+              <span v-else-if="cat.value === 'seed'" class="i-carbon-tree mr-1.5" />
+              <span v-else-if="cat.value === 'tool'" class="i-carbon-tool-box mr-1.5" />
+              <span v-else class="i-carbon-list-boxes mr-1.5" />
+              {{ cat.label }}
+              <span class="ml-1 text-xs opacity-70">({{ categoryCounts[cat.value] || 0 }})</span>
+            </NButton>
+          </div>
+          <div class="bag-actions flex flex-wrap items-center gap-2">
+            <NButton
+              v-if="sellModeAvailable"
+              :type="batchAction === 'sell' ? 'warning' : 'default'"
+              :secondary="batchAction !== 'sell'"
+              size="small"
+              @click="toggleBatchMode('sell')"
+            >
+              <span v-if="batchAction === 'sell'" class="i-carbon-close mr-1" />
+              <span v-else class="i-carbon-shopping-cart-arrow-down mr-1" />
+              {{ batchAction === 'sell' ? '取消出售' : '批量出售' }}
             </NButton>
             <NButton
-              :type="batchAction === 'sell' ? 'error' : 'primary'"
+              v-if="lockModeAvailable"
+              :type="batchAction === 'lock' ? 'primary' : 'default'"
+              :secondary="batchAction !== 'lock'"
               size="small"
-              :disabled="selectedBatchCount === 0"
-              @click="handleBatchActionClick"
+              @click="toggleBatchMode('lock')"
             >
-              <span v-if="batchAction === 'sell'" class="i-carbon-shopping-cart-arrow-down mr-1" />
-              <span v-else-if="batchAction === 'lock'" class="i-carbon-locked mr-1" />
-              <span v-else class="i-carbon-unlocked mr-1" />
-              {{ batchActionLabel }} ({{ selectedBatchCount }})
+              <span v-if="batchAction === 'lock'" class="i-carbon-close mr-1" />
+              <span v-else class="i-carbon-locked mr-1" />
+              {{ batchAction === 'lock' ? '取消锁定' : '批量锁定' }}
             </NButton>
-          </template>
+            <NButton
+              v-if="lockModeAvailable"
+              :type="batchAction === 'unlock' ? 'primary' : 'default'"
+              :secondary="batchAction !== 'unlock'"
+              size="small"
+              @click="toggleBatchMode('unlock')"
+            >
+              <span v-if="batchAction === 'unlock'" class="i-carbon-close mr-1" />
+              <span v-else class="i-carbon-unlocked mr-1" />
+              {{ batchAction === 'unlock' ? '取消解锁' : '批量解锁' }}
+            </NButton>
+            <template v-if="batchMode">
+              <span class="bag-batch-hint" role="status">
+                <template v-if="batchEligibleCount">已选 <b>{{ selectedBatchCount }}</b> / 可选 {{ batchEligibleCount }}</template>
+                <template v-else>当前分类没有可{{ batchActionLabel }}的物品</template>
+              </span>
+              <NButton type="primary" secondary size="small" :disabled="!batchEligibleCount" @click="selectAllEligible">
+                <span class="i-carbon-checkmark-outline mr-1" />
+                全选可{{ batchActionLabel }}项
+              </NButton>
+              <NButton
+                :type="batchAction === 'sell' ? 'error' : 'primary'"
+                size="small"
+                :disabled="selectedBatchCount === 0"
+                @click="handleBatchActionClick"
+              >
+                <span v-if="batchAction === 'sell'" class="i-carbon-shopping-cart-arrow-down mr-1" />
+                <span v-else-if="batchAction === 'lock'" class="i-carbon-locked mr-1" />
+                <span v-else class="i-carbon-unlocked mr-1" />
+                {{ batchActionLabel }} ({{ selectedBatchCount }})
+              </NButton>
+            </template>
+          </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-5 md:grid-cols-4 sm:grid-cols-3 xl:grid-cols-6">
-          <div
-            v-for="item in filteredItems"
-            :key="itemKey(item)"
-            class="group relative flex flex-col items-center farm-card rounded-xl p-3 transition"
-            :class="{
-              'ring-2 ring-orange-500 dark:ring-orange-400': batchMode && selectedForBatch.has(itemKey(item)),
-              'cursor-pointer opacity-55': batchMode && isBatchEligible(item) && !selectedForBatch.has(itemKey(item)),
-            }"
-            @click="batchMode && toggleBatchSelection(item)"
-          >
-            <div class="absolute left-2 top-2 text-xs font-mono" style="color: var(--theme-text, #9ca3af); opacity: 0.5">
-              #{{ item.id }}
-            </div>
-
-            <div class="absolute right-1 top-1 flex gap-1">
-              <template v-if="!batchMode">
-                <NButton
-                  v-if="canView(item)"
-                  type="info"
-                  size="tiny"
-                  circle
-                  title="查看赠送信息"
-                  @click.stop="handleViewClick(item)"
-                >
-                  <span class="i-carbon-view" />
-                </NButton>
-                <NButton
-                  v-if="canSell(item)"
-                  type="error"
-                  size="tiny"
-                  circle
-                  title="出售全部"
-                  @click.stop="handleSellClick(item)"
-                >
-                  <span class="i-carbon-shopping-cart-arrow-down" />
-                </NButton>
-                <NButton
-                  v-if="canUse(item)"
-                  type="success"
-                  size="tiny"
-                  circle
-                  title="选择使用数量"
-                  @click.stop="handleUseClick(item)"
-                >
-                  <span class="i-carbon-magic-wand-filled" />
-                </NButton>
-              </template>
-              <div
-                v-else-if="isBatchEligible(item)"
-                class="h-5 w-5 flex items-center justify-center border-2 rounded-lg transition"
-                :class="selectedForBatch.has(itemKey(item))
-                  ? 'border-orange-500 bg-orange-500 text-white'
-                  : 'border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-700'"
-              >
-                <span v-if="selectedForBatch.has(itemKey(item))" class="text-xs font-bold">✓</span>
-              </div>
-            </div>
-
+        <div :key="selectedCategory" class="personal-panel__scroll custom-scrollbar" role="region" aria-label="背包物品列表" tabindex="0">
+          <EmptyState v-if="!filteredItems.length" bare title="这个分类暂无物品" icon="i-carbon-box" />
+          <div v-else class="grid grid-cols-2 gap-4 lg:grid-cols-5 md:grid-cols-4 sm:grid-cols-3 xl:grid-cols-6">
             <div
-              class="thumb-wrap mb-2 mt-6 h-16 w-16 flex items-center justify-center rounded-xl"
-              :data-fallback="(item.name || '物').slice(0, 1)"
-              style="background: color-mix(in srgb, var(--theme-bg, #fff) 90%, var(--theme-primary, #3b82f6))"
+              v-for="item in filteredItems"
+              :key="itemKey(item)"
+              class="bag-item group relative flex flex-col items-center farm-card rounded-xl p-3 transition"
+              :class="batchMode ? {
+                'bag-item--selectable': isBatchEligible(item),
+                'bag-item--selected': selectedForBatch.has(itemKey(item)),
+                'bag-item--disabled': !isBatchEligible(item),
+              } : null"
+              :role="batchMode && isBatchEligible(item) ? 'checkbox' : undefined"
+              :aria-checked="batchMode && isBatchEligible(item) ? selectedForBatch.has(itemKey(item)) : undefined"
+              @click="batchMode && toggleBatchSelection(item)"
             >
-              <img
-                v-if="item.image && !imageErrors[itemKey(item)]"
-                :src="item.image"
-                :alt="item.name"
-                class="max-h-full max-w-full object-contain"
-                loading="lazy"
-                @error="imageErrors[itemKey(item)] = true"
-              >
-              <div v-else class="text-2xl text-gray-400 font-bold uppercase">
-                {{ (item.name || '物').slice(0, 1) }}
+              <div class="absolute left-2 top-2 text-xs font-mono" style="color: var(--theme-text, #9ca3af); opacity: 0.5">
+                #{{ item.id }}
               </div>
-            </div>
 
-            <div class="mb-1 w-full truncate px-2 text-center text-sm font-bold" :title="item.name" style="color: var(--theme-text, #374151)">
-              {{ item.name || `物品${item.id}` }}
-            </div>
-
-            <div class="mb-2 flex flex-col items-center gap-0.5 text-xs text-gray-400">
-              <span v-if="item.locked" class="inline-flex items-center gap-1 text-amber-600 font-bold dark:text-amber-300">
-                <span class="i-carbon-locked" /> 已锁定
-              </span>
-              <span v-if="item.uid">UID: {{ item.uid }}</span>
-              <span v-if="mutantTypeLabel(item)">变异类型: {{ mutantTypeLabel(item) }}</span>
-              <span>
+              <div class="absolute right-1 top-1 flex gap-1">
+                <template v-if="!batchMode">
+                  <NButton
+                    v-if="canView(item)"
+                    type="info"
+                    size="tiny"
+                    circle
+                    title="查看赠送信息"
+                    @click.stop="handleViewClick(item)"
+                  >
+                    <span class="i-carbon-view" />
+                  </NButton>
+                  <NButton
+                    v-if="canSell(item)"
+                    type="error"
+                    size="tiny"
+                    circle
+                    title="出售全部"
+                    @click.stop="handleSellClick(item)"
+                  >
+                    <span class="i-carbon-shopping-cart-arrow-down" />
+                  </NButton>
+                  <NButton
+                    v-if="canUse(item)"
+                    type="success"
+                    size="tiny"
+                    circle
+                    title="选择使用数量"
+                    @click.stop="handleUseClick(item)"
+                  >
+                    <span class="i-carbon-magic-wand-filled" />
+                  </NButton>
+                </template>
                 <span
-                  class="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold"
-                  :class="getItemCategory(item) === 'fruit' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                    : getItemCategory(item) === 'mutant' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                      : getItemCategory(item) === 'seed' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'"
+                  v-else-if="isBatchEligible(item)"
+                  class="bag-check"
+                  :class="{ 'is-checked': selectedForBatch.has(itemKey(item)) }"
+                  aria-hidden="true"
                 >
-                  <span v-if="getItemCategory(item) === 'fruit'" class="i-carbon-apple" />
-                  <span v-else-if="getItemCategory(item) === 'mutant'" class="i-carbon-flash" />
-                  <span v-else-if="getItemCategory(item) === 'seed'" class="i-carbon-tree" />
-                  <span v-else class="i-carbon-tool-box" />
-                  {{ item.itemType || 0 }}
+                  <span v-if="selectedForBatch.has(itemKey(item))" class="i-carbon-checkmark" />
                 </span>
-                <span v-if="item.level > 0"> · Lv{{ item.level }}</span>
-                <span v-if="item.price > 0" :class="getPriceClass(item)"> · {{ item.price }}{{ item.priceUnit || '金' }}</span>
-              </span>
-              <span
-                v-if="item.sellStatus"
-                :class="canSell(item) ? 'text-green-500 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'"
-                :title="item.sellCondition || ''"
-              >{{ getSellStatusText(item) }}</span>
-            </div>
+                <span v-else class="bag-ineligible">{{ batchIneligibleReason(item) }}</span>
+              </div>
 
-            <div class="mt-auto font-medium" :class="item.hoursText ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300'">
-              {{ item.hoursText || `x${item.count || 0}` }}
+              <div
+                class="thumb-wrap mb-2 mt-6 h-16 w-16 flex items-center justify-center rounded-xl"
+                :data-fallback="(item.name || '物').slice(0, 1)"
+                style="background: color-mix(in srgb, var(--theme-bg, #fff) 90%, var(--theme-primary, #3b82f6))"
+              >
+                <img
+                  v-if="item.image && !imageErrors[itemKey(item)]"
+                  :src="item.image"
+                  :alt="item.name"
+                  class="max-h-full max-w-full object-contain"
+                  loading="lazy"
+                  @error="imageErrors[itemKey(item)] = true"
+                >
+                <div v-else class="text-2xl text-gray-400 font-bold uppercase">
+                  {{ (item.name || '物').slice(0, 1) }}
+                </div>
+              </div>
+
+              <div class="mb-1 w-full truncate px-2 text-center text-sm font-bold" :title="item.name" style="color: var(--theme-text, #374151)">
+                {{ item.name || `物品${item.id}` }}
+              </div>
+
+              <div class="mb-2 flex flex-col items-center gap-0.5 text-xs text-gray-400">
+                <span v-if="item.locked" class="inline-flex items-center gap-1 text-amber-600 font-bold dark:text-amber-300">
+                  <span class="i-carbon-locked" /> 已锁定
+                </span>
+                <span v-if="item.uid">UID: {{ item.uid }}</span>
+                <span v-if="mutantTypeLabel(item)">变异类型: {{ mutantTypeLabel(item) }}</span>
+                <span>
+                  <span
+                    class="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+                    :class="getItemCategory(item) === 'fruit' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                      : getItemCategory(item) === 'mutant' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                        : getItemCategory(item) === 'seed' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'"
+                  >
+                    <span v-if="getItemCategory(item) === 'fruit'" class="i-carbon-apple" />
+                    <span v-else-if="getItemCategory(item) === 'mutant'" class="i-carbon-flash" />
+                    <span v-else-if="getItemCategory(item) === 'seed'" class="i-carbon-tree" />
+                    <span v-else class="i-carbon-tool-box" />
+                    {{ item.itemType || 0 }}
+                  </span>
+                  <span v-if="item.level > 0"> · Lv{{ item.level }}</span>
+                  <span v-if="item.price > 0" :class="getPriceClass(item)"> · {{ item.price }}{{ item.priceUnit || '金' }}</span>
+                </span>
+                <span
+                  v-if="item.sellStatus"
+                  :class="canSell(item) ? 'text-green-500 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'"
+                  :title="item.sellCondition || ''"
+                >{{ getSellStatusText(item) }}</span>
+              </div>
+
+              <div class="mt-auto font-medium" :class="item.hoursText ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300'">
+                {{ item.hoursText || `x${item.count || 0}` }}
+              </div>
             </div>
           </div>
         </div>
@@ -907,6 +924,94 @@ useIntervalFn(loadBag, 60000)
 </template>
 
 <style scoped>
+.bag-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.bag-batch-hint {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bag-batch-hint b {
+  color: var(--ui-ink);
+}
+
+/* 批量选择：选中用 outline，避免被卡片的全局阴影覆盖。 */
+.bag-item--selectable {
+  cursor: pointer;
+}
+
+.bag-item--selectable:hover {
+  outline: 1px solid color-mix(in srgb, var(--ui-primary) 45%, transparent);
+}
+
+.bag-item--selected,
+.bag-item--selected:hover {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--ui-primary-soft) 70%, var(--ui-surface)) !important;
+}
+
+.bag-item--disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.bag-check {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  margin: 2px;
+  place-items: center;
+  border: 1.5px solid var(--ui-border-strong);
+  border-radius: 6px;
+  color: #fff;
+  background: var(--ui-surface-strong);
+  font-size: 13px;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.bag-check.is-checked {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+}
+
+.bag-ineligible {
+  margin: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--ui-muted);
+  background: var(--ui-surface-soft);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.bag-categories {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.bag-categories :deep(.n-button) {
+  flex: none;
+}
+
+@media (max-width: 520px) {
+  .bag-actions :deep(.n-button) {
+    padding-inline: 6px;
+  }
+}
+
 .thumb-wrap.fallback img {
   display: none;
 }

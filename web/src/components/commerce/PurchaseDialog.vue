@@ -73,7 +73,9 @@ function setCount(value: number) {
         <strong v-if="goods.isFree">免费</strong>
         <strong v-else><CommerceItemImage :src="goods.price.image" :alt="goods.price.name" size="sm" />{{ totalCost.toLocaleString() }}</strong>
       </div>
-      <p v-if="balanceUnknown" class="purchase-error">余额暂不可用，请刷新商城</p>
+      <p v-if="balanceUnknown" class="purchase-error">
+        余额暂不可用，请刷新商城
+      </p>
       <p v-else-if="insufficient" class="purchase-error">
         {{ goods.price.name }}余额不足
       </p>
@@ -154,7 +156,9 @@ header button:hover,
 .stepper button:hover {
   background: var(--ui-surface-soft);
 }
-header > div { min-width: 0; }
+header > div {
+  min-width: 0;
+}
 .purchase-product {
   display: grid;
   grid-template-columns: auto 1fr;
