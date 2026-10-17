@@ -44,6 +44,18 @@ type CategoryValue = typeof CATEGORY_OPTIONS[number]['value']
 
 const selectedCategory = ref<CategoryValue>('fruit')
 
+const CATEGORY_SHORT_LABELS: Record<string, string> = {
+  fruit: '果实',
+  mutant: '超变',
+  seed: '种子',
+  tool: '道具',
+}
+
+function formatItemCount(value: unknown) {
+  const count = Number(value)
+  return Number.isFinite(count) ? count.toLocaleString('zh-CN') : '0'
+}
+
 function getItemCategory(item: any): CategoryValue {
   const itemType = Number(item?.itemType || 0)
   if (itemType === 6)
@@ -734,11 +746,11 @@ useIntervalFn(loadBag, 60000)
 
         <div :key="selectedCategory" class="personal-panel__scroll custom-scrollbar" role="region" aria-label="背包物品列表" tabindex="0">
           <EmptyState v-if="!filteredItems.length" bare title="这个分类暂无物品" icon="i-carbon-box" />
-          <div v-else class="grid grid-cols-2 gap-4 lg:grid-cols-5 md:grid-cols-4 sm:grid-cols-3 xl:grid-cols-6">
-            <div
+          <div v-else class="bag-grid">
+            <article
               v-for="item in filteredItems"
               :key="itemKey(item)"
-              class="bag-item group relative flex flex-col items-center farm-card rounded-xl p-3 transition"
+              class="bag-item farm-card"
               :class="batchMode ? {
                 'bag-item--selectable': isBatchEligible(item),
                 'bag-item--selected': selectedForBatch.has(itemKey(item)),
@@ -748,110 +760,70 @@ useIntervalFn(loadBag, 60000)
               :aria-checked="batchMode && isBatchEligible(item) ? selectedForBatch.has(itemKey(item)) : undefined"
               @click="batchMode && toggleBatchSelection(item)"
             >
-              <div class="absolute left-2 top-2 text-xs font-mono" style="color: var(--theme-text, #9ca3af); opacity: 0.5">
-                #{{ item.id }}
-              </div>
-
-              <div class="absolute right-1 top-1 flex gap-1">
-                <template v-if="!batchMode">
-                  <NButton
-                    v-if="canView(item)"
-                    type="info"
-                    size="tiny"
-                    circle
-                    title="查看赠送信息"
-                    @click.stop="handleViewClick(item)"
-                  >
-                    <span class="i-carbon-view" />
-                  </NButton>
-                  <NButton
-                    v-if="canSell(item)"
-                    type="error"
-                    size="tiny"
-                    circle
-                    title="出售全部"
-                    @click.stop="handleSellClick(item)"
-                  >
-                    <span class="i-carbon-shopping-cart-arrow-down" />
-                  </NButton>
-                  <NButton
-                    v-if="canUse(item)"
-                    type="success"
-                    size="tiny"
-                    circle
-                    title="选择使用数量"
-                    @click.stop="handleUseClick(item)"
-                  >
-                    <span class="i-carbon-magic-wand-filled" />
-                  </NButton>
-                </template>
+              <!-- 右上角只在批量模式下出现：可选项显示复选框，不可选项写明原因 -->
+              <template v-if="batchMode">
                 <span
-                  v-else-if="isBatchEligible(item)"
-                  class="bag-check"
+                  v-if="isBatchEligible(item)"
+                  class="bag-check bag-item__cue"
                   :class="{ 'is-checked': selectedForBatch.has(itemKey(item)) }"
                   aria-hidden="true"
                 >
                   <span v-if="selectedForBatch.has(itemKey(item))" class="i-carbon-checkmark" />
                 </span>
-                <span v-else class="bag-ineligible">{{ batchIneligibleReason(item) }}</span>
-              </div>
+                <span v-else class="bag-ineligible bag-item__cue">{{ batchIneligibleReason(item) }}</span>
+              </template>
 
-              <div
-                class="thumb-wrap mb-2 mt-6 h-16 w-16 flex items-center justify-center rounded-xl"
-                :data-fallback="(item.name || '物').slice(0, 1)"
-                style="background: color-mix(in srgb, var(--theme-bg, #fff) 90%, var(--theme-primary, #3b82f6))"
-              >
+              <!-- 数量以角标形式贴在图标右下角，与游戏背包的习惯一致 -->
+              <div class="bag-item__thumb thumb-wrap" :data-fallback="(item.name || '物').slice(0, 1)">
                 <img
                   v-if="item.image && !imageErrors[itemKey(item)]"
                   :src="item.image"
                   :alt="item.name"
-                  class="max-h-full max-w-full object-contain"
                   loading="lazy"
                   @error="imageErrors[itemKey(item)] = true"
                 >
-                <div v-else class="text-2xl text-gray-400 font-bold uppercase">
-                  {{ (item.name || '物').slice(0, 1) }}
-                </div>
+                <span v-else class="bag-item__fallback">{{ (item.name || '物').slice(0, 1) }}</span>
+                <span v-if="item.locked" class="bag-item__lock" title="已锁定"><span class="i-carbon-locked" /></span>
+                <span class="bag-item__qty" :class="{ 'is-hours': !!item.hoursText }" :title="item.hoursText ? `剩余 ${item.hoursText}` : `数量 ${formatItemCount(item.count)}`">
+                  {{ item.hoursText || `×${formatItemCount(item.count)}` }}
+                </span>
               </div>
 
-              <div class="mb-1 w-full truncate px-2 text-center text-sm font-bold" :title="item.name" style="color: var(--theme-text, #374151)">
-                {{ item.name || `物品${item.id}` }}
-              </div>
+              <strong class="bag-item__name" :title="item.name">{{ item.name || `物品${item.id}` }}</strong>
 
-              <div class="mb-2 flex flex-col items-center gap-0.5 text-xs text-gray-400">
-                <span v-if="item.locked" class="inline-flex items-center gap-1 text-amber-600 font-bold dark:text-amber-300">
-                  <span class="i-carbon-locked" /> 已锁定
-                </span>
-                <span v-if="item.uid">UID: {{ item.uid }}</span>
-                <span v-if="mutantTypeLabel(item)">变异类型: {{ mutantTypeLabel(item) }}</span>
-                <span>
-                  <span
-                    class="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold"
-                    :class="getItemCategory(item) === 'fruit' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                      : getItemCategory(item) === 'mutant' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                        : getItemCategory(item) === 'seed' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'"
-                  >
-                    <span v-if="getItemCategory(item) === 'fruit'" class="i-carbon-apple" />
-                    <span v-else-if="getItemCategory(item) === 'mutant'" class="i-carbon-flash" />
-                    <span v-else-if="getItemCategory(item) === 'seed'" class="i-carbon-tree" />
-                    <span v-else class="i-carbon-tool-box" />
-                    {{ item.itemType || 0 }}
-                  </span>
-                  <span v-if="item.level > 0"> · Lv{{ item.level }}</span>
-                  <span v-if="item.price > 0" :class="getPriceClass(item)"> · {{ item.price }}{{ item.priceUnit || '金' }}</span>
-                </span>
+              <div class="bag-item__meta">
+                <span class="bag-type" :class="`bag-type--${getItemCategory(item)}`">{{ CATEGORY_SHORT_LABELS[getItemCategory(item)] }}</span>
+                <span v-if="item.level > 0">Lv{{ item.level }}</span>
                 <span
-                  v-if="item.sellStatus"
-                  :class="canSell(item) ? 'text-green-500 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'"
+                  v-if="item.sellStatus || item.locked"
+                  :class="{ 'is-sellable': canSell(item), 'is-locked': item.locked }"
                   :title="item.sellCondition || ''"
                 >{{ getSellStatusText(item) }}</span>
               </div>
-
-              <div class="mt-auto font-medium" :class="item.hoursText ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300'">
-                {{ item.hoursText || `x${item.count || 0}` }}
+              <div v-if="mutantTypeLabel(item)" class="bag-item__line" :title="`变异类型：${mutantTypeLabel(item)}`">
+                变异 · {{ mutantTypeLabel(item) }}
               </div>
-            </div>
+              <div v-if="item.price > 0" class="bag-item__line" :class="getPriceClass(item)">
+                单价 {{ item.price }}{{ item.priceUnit || '金' }}
+              </div>
+              <div class="bag-item__ids">
+                #{{ item.id }}<template v-if="item.uid">
+                  · UID {{ item.uid }}
+                </template>
+              </div>
+
+              <div v-if="!batchMode && (canUse(item) || canSell(item) || canView(item))" class="bag-item__actions" @click.stop>
+                <NButton v-if="canUse(item)" size="tiny" type="primary" secondary title="选择使用数量" @click="handleUseClick(item)">
+                  使用
+                </NButton>
+                <NButton v-if="canSell(item)" size="tiny" secondary title="出售全部" @click="handleSellClick(item)">
+                  出售
+                </NButton>
+                <NButton v-if="canView(item)" size="tiny" secondary title="查看赠送信息" @click="handleViewClick(item)">
+                  赠送
+                </NButton>
+              </div>
+            </article>
           </div>
         </div>
       </template>
@@ -924,6 +896,204 @@ useIntervalFn(loadBag, 60000)
 </template>
 
 <style scoped>
+.bag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+}
+
+/* 物品卡片：图标 + 数量角标为视觉焦点，其余信息依次减弱。 */
+.bag-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 12px 12px !important;
+  text-align: center;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.bag-item__cue {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.bag-item__thumb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: grid;
+  margin-bottom: 10px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--ui-surface-soft);
+}
+
+.bag-item__thumb img {
+  max-width: 56px;
+  max-height: 56px;
+  object-fit: contain;
+}
+
+.bag-item__fallback {
+  color: var(--ui-subtle);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.bag-item__qty {
+  position: absolute;
+  right: -12px;
+  bottom: -8px;
+  min-width: 30px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: #33433a;
+  box-shadow: 0 0 0 2px var(--ui-surface-strong);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bag-item__qty.is-hours {
+  background: var(--ui-blue);
+}
+
+:global(.dark) .bag-item__qty {
+  color: #142019;
+  background: #d9e6dc;
+}
+
+.bag-item__lock {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--ui-warning);
+  box-shadow: 0 0 0 2px var(--ui-surface-strong);
+  font-size: 12px;
+}
+
+.bag-item__name {
+  width: 100%;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bag-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  color: var(--ui-muted);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.bag-item__meta .is-sellable {
+  color: var(--ui-primary);
+}
+
+.bag-item__meta .is-locked {
+  color: var(--ui-warning);
+  font-weight: 600;
+}
+
+.bag-type {
+  padding: 0 6px;
+  border-radius: 5px;
+  font-weight: 600;
+}
+
+.bag-type--fruit {
+  color: var(--ui-danger);
+  background: var(--ui-danger-soft);
+}
+
+.bag-type--mutant {
+  color: var(--ui-warning);
+  background: var(--ui-warning-soft);
+}
+
+.bag-type--seed {
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+}
+
+.bag-type--tool {
+  color: var(--ui-blue);
+  background: var(--ui-blue-soft);
+}
+
+.bag-item__line {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bag-item__ids {
+  color: var(--ui-subtle);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bag-item__actions {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.bag-item__actions :deep(.n-button) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 触屏上分类条横向滑动即可，隐藏滚动条。 */
+@media (hover: none) {
+  .bag-categories {
+    scrollbar-width: none;
+  }
+
+  .bag-categories::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .bag-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .bag-item__actions :deep(.n-button) {
+    height: 30px;
+  }
+}
+
 .bag-toolbar {
   display: flex;
   flex-direction: column;
