@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useIntervalFn } from '@vueuse/core'
 import { NButton } from 'naive-ui/es/button'
+import { NDropdown } from 'naive-ui/es/dropdown'
 import { NInputNumber } from 'naive-ui/es/input-number'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -49,6 +50,29 @@ const CATEGORY_SHORT_LABELS: Record<string, string> = {
   mutant: '超变',
   seed: '种子',
   tool: '道具',
+}
+
+type ItemActionKey = 'use' | 'sell' | 'view'
+
+// 主操作排在第一位直接显示，其余收进“更多”菜单，底栏宽度不随操作数量变化。
+function itemActions(item: any) {
+  const actions: Array<{ key: ItemActionKey, label: string, title: string }> = []
+  if (canUse(item))
+    actions.push({ key: 'use', label: '使用', title: '选择使用数量' })
+  if (canSell(item))
+    actions.push({ key: 'sell', label: '出售', title: '出售全部' })
+  if (canView(item))
+    actions.push({ key: 'view', label: '赠送', title: '查看赠送信息' })
+  return actions
+}
+
+function runItemAction(key: ItemActionKey, item: any) {
+  if (key === 'use')
+    handleUseClick(item)
+  else if (key === 'sell')
+    handleSellClick(item)
+  else
+    handleViewClick(item)
 }
 
 function formatItemCount(value: unknown) {
@@ -784,9 +808,6 @@ useIntervalFn(loadBag, 60000)
                 >
                 <span v-else class="bag-item__fallback">{{ (item.name || '物').slice(0, 1) }}</span>
                 <span v-if="item.locked" class="bag-item__lock" title="已锁定"><span class="i-carbon-locked" /></span>
-                <span class="bag-item__qty" :class="{ 'is-hours': !!item.hoursText }" :title="item.hoursText ? `剩余 ${item.hoursText}` : `数量 ${formatItemCount(item.count)}`">
-                  {{ item.hoursText || `×${formatItemCount(item.count)}` }}
-                </span>
               </div>
 
               <strong class="bag-item__name" :title="item.name">{{ item.name || `物品${item.id}` }}</strong>
@@ -794,6 +815,7 @@ useIntervalFn(loadBag, 60000)
               <div class="bag-item__meta">
                 <span class="bag-type" :class="`bag-type--${getItemCategory(item)}`">{{ CATEGORY_SHORT_LABELS[getItemCategory(item)] }}</span>
                 <span v-if="item.level > 0">Lv{{ item.level }}</span>
+                <span v-if="item.price > 0" :class="getPriceClass(item)" title="单价">{{ item.price }}{{ item.priceUnit || '金' }}</span>
                 <span
                   v-if="item.sellStatus || item.locked"
                   :class="{ 'is-sellable': canSell(item), 'is-locked': item.locked }"
@@ -803,26 +825,43 @@ useIntervalFn(loadBag, 60000)
               <div v-if="mutantTypeLabel(item)" class="bag-item__line" :title="`变异类型：${mutantTypeLabel(item)}`">
                 变异 · {{ mutantTypeLabel(item) }}
               </div>
-              <div v-if="item.price > 0" class="bag-item__line" :class="getPriceClass(item)">
-                单价 {{ item.price }}{{ item.priceUnit || '金' }}
-              </div>
               <div class="bag-item__ids">
                 #{{ item.id }}<template v-if="item.uid">
                   · UID {{ item.uid }}
                 </template>
               </div>
 
-              <div v-if="!batchMode && (canUse(item) || canSell(item) || canView(item))" class="bag-item__actions" @click.stop>
-                <NButton v-if="canUse(item)" size="tiny" type="primary" secondary title="选择使用数量" @click="handleUseClick(item)">
-                  使用
-                </NButton>
-                <NButton v-if="canSell(item)" size="tiny" secondary title="出售全部" @click="handleSellClick(item)">
-                  出售
-                </NButton>
-                <NButton v-if="canView(item)" size="tiny" secondary title="查看赠送信息" @click="handleViewClick(item)">
-                  赠送
-                </NButton>
-              </div>
+              <!-- 每张卡都有底栏：左侧数量，右侧操作。卡片结构一致，因此等高；数量不再压在图标上。 -->
+              <footer class="bag-item__foot">
+                <span class="bag-item__qty" :class="{ 'is-hours': !!item.hoursText }" :title="item.hoursText ? `剩余 ${item.hoursText}` : `数量 ${formatItemCount(item.count)}`">
+                  <template v-if="item.hoursText">{{ item.hoursText }}</template>
+                  <template v-else><small>×</small>{{ formatItemCount(item.count) }}</template>
+                </span>
+                <span v-if="!batchMode && itemActions(item).length" class="bag-item__ops" @click.stop>
+                  <NButton
+                    size="tiny"
+                    :type="itemActions(item)[0]!.key === 'use' ? 'primary' : 'default'"
+                    secondary
+                    :title="itemActions(item)[0]!.title"
+                    @click="runItemAction(itemActions(item)[0]!.key, item)"
+                  >
+                    {{ itemActions(item)[0]!.label }}
+                  </NButton>
+                  <NDropdown
+                    v-if="itemActions(item).length > 1"
+                    trigger="click"
+                    placement="bottom-end"
+                    :options="itemActions(item).slice(1).map(action => ({ key: action.key, label: action.label }))"
+                    @select="(key: ItemActionKey) => runItemAction(key, item)"
+                  >
+                    <NButton size="tiny" quaternary circle title="更多操作" aria-label="更多操作">
+                      <template #icon>
+                        <span class="i-carbon-overflow-menu-horizontal" />
+                      </template>
+                    </NButton>
+                  </NDropdown>
+                </span>
+              </footer>
             </article>
           </div>
         </div>
@@ -899,6 +938,7 @@ useIntervalFn(loadBag, 60000)
 .bag-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-auto-rows: 1fr;
   gap: 14px;
 }
 
@@ -928,7 +968,7 @@ useIntervalFn(loadBag, 60000)
   width: 72px;
   height: 72px;
   display: grid;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   place-items: center;
   border-radius: 18px;
   background: var(--ui-surface-soft);
@@ -946,30 +986,47 @@ useIntervalFn(loadBag, 60000)
   font-weight: 700;
 }
 
+.bag-item__foot {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ui-border);
+}
+
 .bag-item__qty {
-  position: absolute;
-  right: -12px;
-  bottom: -8px;
-  min-width: 30px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: #fff;
-  background: #33433a;
-  box-shadow: 0 0 0 2px var(--ui-surface-strong);
-  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 16px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.bag-item__qty.is-hours {
-  background: var(--ui-blue);
+.bag-item__qty small {
+  margin-right: 1px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-:global(.dark) .bag-item__qty {
-  color: #142019;
-  background: #d9e6dc;
+.bag-item__qty.is-hours {
+  color: var(--ui-blue);
+  font-size: 14px;
+}
+
+.bag-item__ops {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
 }
 
 .bag-item__lock {
@@ -1059,19 +1116,6 @@ useIntervalFn(loadBag, 60000)
   font-variant-numeric: tabular-nums;
 }
 
-.bag-item__actions {
-  display: flex;
-  width: 100%;
-  gap: 6px;
-  margin-top: auto;
-  padding-top: 10px;
-}
-
-.bag-item__actions :deep(.n-button) {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 /* 触屏上分类条横向滑动即可，隐藏滚动条。 */
 @media (hover: none) {
   .bag-categories {
@@ -1089,8 +1133,8 @@ useIntervalFn(loadBag, 60000)
     gap: 10px;
   }
 
-  .bag-item__actions :deep(.n-button) {
-    height: 30px;
+  .bag-item__qty {
+    font-size: 15px;
   }
 }
 
