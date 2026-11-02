@@ -11,11 +11,11 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { useAccountStore } from '@/stores/account'
 import { useCommerceStore } from '@/stores/commerce'
 import { useToastStore } from '@/stores/toast'
-import { getMallPurchaseAction } from '@/utils/mall-purchase'
+import { getMallLimitLabel, getMallPurchaseAction } from '@/utils/mall-purchase'
 
 type FilterKey = 'all' | 'free' | 'discount' | 'fertilizer' | 'pet' | 'activity'
 
-const { slotType } = defineProps<{ slotType: 1 | 4 | 5 }>()
+const { slotType, propsShop = false } = defineProps<{ slotType: 1 | 4 | 5, propsShop?: boolean }>()
 
 const accountStore = useAccountStore()
 const commerceStore = useCommerceStore()
@@ -29,16 +29,23 @@ const query = ref('')
 const clock = ref(Date.now())
 let timer: number | undefined
 
-const ACTIVITY_ITEM_IDS = new Set([1028, 1029, 1030, 80101, 80102, 80103, 90031, 90032, 90033, 90034, 90041, 29004, 101305, 101613, 6001, 6002, 26030, 90042])
+const ACTIVITY_ITEM_IDS = new Set([1028, 1029, 1030, 80101, 80102, 80103, 90031, 90032, 90033, 90034, 90041, 29004, 29005, 101305, 101613, 101618, 101619, 6001, 6002, 26030, 90042])
 
-const filters: Array<{ key: FilterKey, label: string }> = [
-  { key: 'all', label: '全部' },
-  { key: 'free', label: '免费' },
-  { key: 'discount', label: '折扣' },
-  { key: 'fertilizer', label: '化肥' },
-  { key: 'pet', label: '狗粮' },
-  { key: 'activity', label: '活动限定' },
-]
+const filters = computed<Array<{ key: FilterKey, label: string }>>(() => {
+  const entries: Array<{ key: FilterKey, label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'free', label: '免费' },
+    { key: 'discount', label: '折扣' },
+  ]
+  if (!propsShop) {
+    entries.push(
+      { key: 'fertilizer', label: '化肥' },
+      { key: 'pet', label: '狗粮' },
+      { key: 'activity', label: '活动限定' },
+    )
+  }
+  return entries
+})
 
 const filteredGoods = computed(() => {
   const keyword = query.value.trim().toLowerCase()
@@ -74,6 +81,8 @@ function formatDuration(seconds: number) {
 const shopStatus = computed(() => {
   if (!mall.value)
     return ''
+  if (propsShop)
+    return ''
   if (slotType === 4 && mall.value.membership) {
     return mall.value.membership.isSvip
       ? `SVIP 生效中 · 剩余 ${mall.value.membership.remainingDays} 天`
@@ -96,6 +105,10 @@ function rewardSummary(goods: MallGoodsDto) {
   return goods.rewards.map(item => `${item.name} ×${item.count}`).join('\n')
 }
 
+function limitLabel(goods: MallGoodsDto) {
+  return propsShop ? '限购' : getMallLimitLabel(goods.limit?.type)
+}
+
 // 只有一种奖励且与商品同名时，名称已经说明内容，只补数量。
 function isSingleReward(goods: MallGoodsDto) {
   return goods.rewards.length === 1
@@ -110,7 +123,7 @@ function discountRemaining(goods: MallGoodsDto) {
 }
 
 function load() {
-  commerceStore.fetchMall(String(currentAccountId.value || ''), slotType)
+  commerceStore.fetchMall(String(currentAccountId.value || ''), slotType, propsShop)
 }
 
 function choose(goods: MallGoodsDto) {
@@ -132,7 +145,7 @@ async function purchase(count: number) {
   }
 }
 
-watch(() => slotType, () => {
+watch(() => [slotType, propsShop], () => {
   selected.value = null
   filter.value = 'all'
   load()
@@ -235,7 +248,7 @@ onUnmounted(() => {
             </span>
           </div>
           <div v-if="goods.limit || discountRemaining(goods)" class="goods-card__meta">
-            <span v-if="goods.limit">限购 {{ goods.limit.bought }}/{{ goods.limit.max }}</span>
+            <span v-if="goods.limit">{{ limitLabel(goods) }} {{ goods.limit.bought }}/{{ goods.limit.max }}</span>
             <span v-if="discountRemaining(goods)" class="is-warn">{{ discountRemaining(goods) }}</span>
           </div>
         </div>
@@ -266,6 +279,7 @@ onUnmounted(() => {
     <PurchaseDialog
       :open="!!selected"
       :goods="selected"
+      :limit-label="selected ? limitLabel(selected) : undefined"
       :pending="purchasingGoodsId === selected?.id"
       @close="selected = null"
       @confirm="purchase"
