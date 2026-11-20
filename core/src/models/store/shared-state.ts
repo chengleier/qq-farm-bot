@@ -105,6 +105,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     knownFriendGidSyncCooldownSec: DEFAULT_KNOWN_FRIEND_GID_SYNC_COOLDOWN_SEC,
     friendsListCacheTtlSec: DEFAULT_FRIENDS_LIST_CACHE_TTL_SEC,
     friendBlacklist: [],
+    ranchFriendBlacklist: [],
     plantBlacklist: [
         20002,
         20003,
@@ -300,6 +301,7 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
     }
 
     const rawBlacklist: number[] = Array.isArray(base.friendBlacklist) ? base.friendBlacklist : [];
+    const rawRanchFriendBlacklist: number[] = Array.isArray(base.ranchFriendBlacklist) ? base.ranchFriendBlacklist : [];
 
     const knownFriendGids = normalizeKnownFriendGids(base.knownFriendGids);
     const knownFriendGidSyncCooldownSec = normalizeKnownFriendGidSyncCooldownSec(base.knownFriendGidSyncCooldownSec);
@@ -317,6 +319,7 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         knownFriendGidSyncCooldownSec,
         friendsListCacheTtlSec,
         friendBlacklist: rawBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
+        ranchFriendBlacklist: rawRanchFriendBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
         plantingStrategy: ALLOWED_PLANTING_STRATEGIES.includes(String(base.plantingStrategy || '') as PlantingStrategy)
             ? String(base.plantingStrategy) as PlantingStrategy
             : DEFAULT_ACCOUNT_CONFIG.plantingStrategy,
@@ -356,6 +359,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     const cfg = cloneAccountConfig(fallback || DEFAULT_ACCOUNT_CONFIG);
 
     if (src.automation && typeof src.automation === 'object') {
+        // 旧账号同时关闭补栏与金券升级时保留手动解锁。
+        if (src.automation.ranch_activate_shed === undefined && src.automation.ranch_upgrade === false && src.automation.ranch_buy === false) {
+            cfg.automation.ranch_activate_shed = false;
+        }
         for (const [k, v] of Object.entries(migrateRanchMarketAutomation(src.automation))) {
             if (!ALLOWED_AUTOMATION_KEYS.has(k)) continue;
             if (k === 'fertilizer') {
@@ -404,6 +411,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (Array.isArray(src.friendBlacklist)) {
         cfg.friendBlacklist = src.friendBlacklist.map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
+    }
+
+    if (Array.isArray(src.ranchFriendBlacklist)) {
+        cfg.ranchFriendBlacklist = src.ranchFriendBlacklist.map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
     }
 
     if (src.knownFriendGids !== undefined) {
